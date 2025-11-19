@@ -56,6 +56,7 @@ exports.validateProject = [
 
 exports.validateTask = [
   body('title')
+    .optional()
     .trim()
     .isLength({ min: 1 })
     .withMessage('Title is required'),
@@ -63,8 +64,12 @@ exports.validateTask = [
     .optional({ checkFalsy: true })
     .isIn(['low', 'medium', 'high', 'urgent'])
     .withMessage('Invalid priority'),
-  body('duration')
+  body('duration.value')
     .optional({ checkFalsy: true })
     .isNumeric()
-    .withMessage('Duration must be a number')
+    .withMessage('Duration value must be a number'),
+  body('duration.unit')
+    .optional({ checkFalsy: true })
+    .isIn(['minutes', 'hours', 'days', 'weeks'])
+    .withMessage('Invalid duration unit')
 ];

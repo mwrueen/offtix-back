@@ -44,8 +44,15 @@ const taskSchema = new mongoose.Schema({
     ref: 'Task'
   }],
   duration: {
-    type: Number, // in hours
-    min: 0
+    value: {
+      type: Number,
+      min: 0
+    },
+    unit: {
+      type: String,
+      enum: ['minutes', 'hours', 'days', 'weeks'],
+      default: 'hours'
+    }
   },
   startDate: {
     type: Date

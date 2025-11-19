@@ -137,8 +137,35 @@ exports.createTask = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Sanitize request body - convert empty strings to undefined for optional fields
+    const sanitizedBody = { ...req.body };
+
+    // Handle ObjectId fields - convert empty strings to undefined
+    ['status', 'sprint', 'phase', 'parent'].forEach(field => {
+      if (sanitizedBody[field] === '') {
+        sanitizedBody[field] = undefined;
+      }
+    });
+
+    // Handle priority - convert empty string to undefined
+    if (sanitizedBody.priority === '') {
+      sanitizedBody.priority = undefined;
+    }
+
+    // Handle dates - convert empty strings to undefined
+    ['startDate', 'dueDate'].forEach(field => {
+      if (sanitizedBody[field] === '') {
+        sanitizedBody[field] = undefined;
+      }
+    });
+
+    // Handle duration - remove if value is empty
+    if (sanitizedBody.duration && (!sanitizedBody.duration.value || sanitizedBody.duration.value === '')) {
+      sanitizedBody.duration = undefined;
+    }
+
     const task = new Task({
-      ...req.body,
+      ...sanitizedBody,
       project: projectId,
       createdBy: req.user._id
     });
@@ -184,15 +211,42 @@ exports.updateTask = async (req, res) => {
     if (req.body.status && req.body.status !== task.status?.toString()) {
       const dependencyCheck = await checkTaskDependencies(req.params.id, req.body.status);
       if (!dependencyCheck.canChange) {
-        return res.status(400).json({ 
-          error: 'Cannot change task status', 
+        return res.status(400).json({
+          error: 'Cannot change task status',
           message: dependencyCheck.message,
           blockedBy: dependencyCheck.blockedBy
         });
       }
     }
 
-    Object.assign(task, req.body);
+    // Sanitize request body - convert empty strings to undefined for optional fields
+    const sanitizedBody = { ...req.body };
+
+    // Handle ObjectId fields - convert empty strings to undefined
+    ['status', 'sprint', 'phase', 'parent'].forEach(field => {
+      if (sanitizedBody[field] === '') {
+        sanitizedBody[field] = undefined;
+      }
+    });
+
+    // Handle priority - convert empty string to undefined
+    if (sanitizedBody.priority === '') {
+      sanitizedBody.priority = undefined;
+    }
+
+    // Handle dates - convert empty strings to undefined
+    ['startDate', 'dueDate'].forEach(field => {
+      if (sanitizedBody[field] === '') {
+        sanitizedBody[field] = undefined;
+      }
+    });
+
+    // Handle duration - remove if value is empty
+    if (sanitizedBody.duration && (!sanitizedBody.duration.value || sanitizedBody.duration.value === '')) {
+      sanitizedBody.duration = undefined;
+    }
+
+    Object.assign(task, sanitizedBody);
     await task.save();
     await task.populate('assignees', 'name email');
     await task.populate('dependencies', 'title status');
@@ -240,7 +294,7 @@ exports.deleteTask = async (req, res) => {
 exports.checkStatusChange = async (req, res) => {
   try {
     const { taskId, statusId } = req.params;
-    
+
     const task = await Task.findById(taskId);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -251,17 +305,64 @@ exports.checkStatusChange = async (req, res) => {
     const user = await User.findById(req.user._id).populate('company');
     const isSuperAdmin = user.role === 'superadmin';
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
+
+    const hasAccess = project.owner.equals(req.user._id) ||
                      project.members.some(member => member.equals(req.user._id)) ||
                      isSuperAdmin || isCompanyCreator;
-    
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     const dependencyCheck = await checkTaskDependencies(taskId, statusId);
     res.json(dependencyCheck);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.reorderTasks = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { taskOrders } = req.body; // Array of { taskId, order }
+
+    // Verify project access
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const user = await User.findById(req.user._id).populate('company');
+    const isSuperAdmin = user.role === 'superadmin';
+    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+                     project.members.some(member => member.equals(req.user._id)) ||
+                     isSuperAdmin || isCompanyCreator;
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Update task orders in bulk
+    const updatePromises = taskOrders.map(({ taskId, order }) =>
+      Task.findByIdAndUpdate(taskId, { order }, { new: true })
+    );
+
+    await Promise.all(updatePromises);
+
+    // Return updated tasks
+    const tasks = await Task.find({ project: projectId })
+      .populate('assignees', 'name email')
+      .populate('dependencies', 'title status')
+      .populate('createdBy', 'name')
+      .populate('status', 'name color')
+      .populate('parent', 'title')
+      .populate('sprint', 'name sprintNumber')
+      .populate('phase', 'name')
+      .sort({ order: 1, createdAt: 1 });
+
+    res.json(tasks);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

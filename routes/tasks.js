@@ -8,6 +8,7 @@ router.use(authenticate);
 
 router.get('/', taskController.getTasks);
 router.post('/', validateTask, taskController.createTask);
+router.post('/reorder', taskController.reorderTasks);
 router.put('/:id', validateTask, taskController.updateTask);
 router.delete('/:id', taskController.deleteTask);
 router.get('/:taskId/status-check/:statusId', taskController.checkStatusChange);

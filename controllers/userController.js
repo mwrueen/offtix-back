@@ -196,18 +196,18 @@ exports.uploadPhoto = async (req, res) => {
   try {
     const userId = req.user._id;
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     const updateData = {};
-    
+
     if (req.files.profilePicture) {
       const file = req.files.profilePicture[0];
       updateData['profile.profilePicture'] = `/uploads/profile-pictures/${file.filename}`;
     }
-    
+
     if (req.files.coverPhoto) {
       const file = req.files.coverPhoto[0];
       updateData['profile.coverPhoto'] = `/uploads/cover-photos/${file.filename}`;
@@ -220,6 +220,46 @@ exports.uploadPhoto = async (req, res) => {
     ).select('-password');
 
     res.json(updatedUser);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Update user password (superadmin only)
+exports.updateUserPassword = async (req, res) => {
+  try {
+    // Check if the requesting user is a superadmin
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Access denied. Only superadmin can change user passwords.' });
+    }
+
+    const { id } = req.params;
+    const { password } = req.body;
+
+    // Validate password
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    // Find the user
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('Updating password for user:', user.email);
+    console.log('Password before update:', user.password.substring(0, 20) + '...');
+
+    // Update password - the pre-save hook will hash it automatically
+    user.password = password;
+    // Explicitly mark password as modified to ensure pre-save hook runs
+    user.markModified('password');
+    await user.save();
+
+    console.log('Password after update:', user.password.substring(0, 20) + '...');
+    console.log('Password updated successfully for user:', user.email);
+
+    res.json({ message: 'Password updated successfully' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

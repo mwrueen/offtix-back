@@ -3,18 +3,90 @@ const User = require('../models/User');
 
 exports.createCompany = async (req, res) => {
   try {
-    const { name, description } = req.body;
-    
+    const {
+      name,
+      description,
+      industry,
+      website,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      country,
+      zipCode,
+      foundedYear,
+      companySize,
+      founderRole,
+      additionalRoles
+    } = req.body;
+
     const company = new Company({
       name,
       description,
+      industry,
+      website,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      country,
+      zipCode,
+      foundedYear,
+      companySize,
       owner: req.user._id,
       members: [{
         user: req.user._id,
-        designation: 'Managing Director',
+        designation: founderRole || 'Founder/Owner',
         currentSalary: 0
       }]
     });
+
+    // Add custom founder role to designations if provided
+    if (founderRole && founderRole !== 'Managing Director') {
+      company.designations.push({
+        name: founderRole,
+        description: 'Company Founder/Owner',
+        permissions: {
+          addEmployee: true,
+          viewEmployeeList: true,
+          editEmployee: true,
+          createDesignation: true,
+          viewDesignations: true,
+          editDesignation: true,
+          deleteDesignation: true,
+          createProject: true,
+          assignEmployeeToProject: true,
+          removeEmployeeFromProject: true
+        }
+      });
+    }
+
+    // Add additional roles if provided
+    if (additionalRoles && Array.isArray(additionalRoles)) {
+      additionalRoles.forEach(role => {
+        if (role.name && role.name.trim()) {
+          company.designations.push({
+            name: role.name.trim(),
+            description: role.description || '',
+            permissions: {
+              addEmployee: false,
+              viewEmployeeList: true,
+              editEmployee: false,
+              createDesignation: false,
+              viewDesignations: true,
+              editDesignation: false,
+              deleteDesignation: false,
+              createProject: false,
+              assignEmployeeToProject: false,
+              removeEmployeeFromProject: false,
+              manageCompanySettings: false
+            }
+          });
+        }
+      });
+    }
 
     await company.save();
     await User.findByIdAndUpdate(req.user._id, { company: company._id });
@@ -289,7 +361,7 @@ exports.getUserCompany = async (req, res) => {
 exports.getUserCompanies = async (req, res) => {
   try {
     const userId = req.user._id;
-    
+
     // Find companies where user is owner or member
     const companies = await Company.find({
       $or: [
@@ -306,7 +378,7 @@ exports.getUserCompanies = async (req, res) => {
       let userRole = 'member';
       let userDesignation = null;
       let userPermissions = {};
-      
+
       if (company.owner._id.toString() === userId.toString()) {
         userRole = 'owner';
         userDesignation = 'Owner';
@@ -321,7 +393,8 @@ exports.getUserCompanies = async (req, res) => {
           deleteDesignation: true,
           createProject: true,
           assignEmployeeToProject: true,
-          removeEmployeeFromProject: true
+          removeEmployeeFromProject: true,
+          manageCompanySettings: true
         };
       } else {
         // Ensure members array exists
@@ -346,12 +419,13 @@ exports.getUserCompanies = async (req, res) => {
               deleteDesignation: false,
               createProject: false,
               assignEmployeeToProject: false,
-              removeEmployeeFromProject: false
+              removeEmployeeFromProject: false,
+              manageCompanySettings: false
             };
           }
         }
       }
-      
+
       return {
         id: company._id,
         name: company.name,
@@ -366,6 +440,125 @@ exports.getUserCompanies = async (req, res) => {
     });
 
     res.json(companiesWithRole);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Company Settings Management
+exports.updateCompanySettings = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { settings } = req.body;
+
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user is company owner
+    if (company.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only company owner can update settings' });
+    }
+
+    // Update settings - deep merge to preserve nested objects
+    if (!company.settings) {
+      company.settings = {};
+    }
+
+    // Preserve timeTracking if not provided
+    if (!settings.timeTracking && company.settings.timeTracking) {
+      settings.timeTracking = company.settings.timeTracking;
+    }
+
+    // Preserve holidays if not provided
+    if (!settings.holidays && company.settings.holidays) {
+      settings.holidays = company.settings.holidays;
+    }
+
+    // Update settings
+    company.settings = {
+      ...company.settings.toObject(),
+      ...settings,
+      timeTracking: {
+        ...(company.settings.timeTracking || {}),
+        ...(settings.timeTracking || {})
+      }
+    };
+
+    await company.save();
+
+    const populatedCompany = await Company.findById(company._id)
+      .populate('owner', 'name email')
+      .populate('members.user', 'name email');
+
+    res.json({ message: 'Settings updated successfully', company: populatedCompany });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.addHoliday = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, name, description } = req.body;
+
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user is company owner
+    if (company.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only company owner can add holidays' });
+    }
+
+    if (!company.settings) {
+      company.settings = { holidays: [] };
+    }
+    if (!company.settings.holidays) {
+      company.settings.holidays = [];
+    }
+
+    company.settings.holidays.push({ date, name, description });
+    await company.save();
+
+    const populatedCompany = await Company.findById(company._id)
+      .populate('owner', 'name email')
+      .populate('members.user', 'name email');
+
+    res.json({ message: 'Holiday added successfully', company: populatedCompany });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.removeHoliday = async (req, res) => {
+  try {
+    const { id, holidayId } = req.params;
+
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user is company owner
+    if (company.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only company owner can remove holidays' });
+    }
+
+    if (company.settings && company.settings.holidays) {
+      company.settings.holidays = company.settings.holidays.filter(
+        h => h._id.toString() !== holidayId
+      );
+      await company.save();
+    }
+
+    const populatedCompany = await Company.findById(company._id)
+      .populate('owner', 'name email')
+      .populate('members.user', 'name email');
+
+    res.json({ message: 'Holiday removed successfully', company: populatedCompany });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

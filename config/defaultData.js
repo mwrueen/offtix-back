@@ -68,7 +68,10 @@ const createSampleProject = async () => {
     status: 'active',
     priority: 'high',
     owner: adminUser._id,
-    members: [adminUser._id]
+    members: [{
+      user: adminUser._id,
+      role: 'Project Manager'
+    }]
   });
 
   // Create default task statuses

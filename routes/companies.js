@@ -13,4 +13,9 @@ router.put('/:id/update-designation', authenticate, companyController.updateMemb
 router.post('/:id/designations', authenticate, companyController.addDesignation);
 router.put('/:id/designation-permissions', authenticate, companyController.updateDesignationPermissions);
 
+// Company Settings Routes
+router.put('/:id/settings', authenticate, companyController.updateCompanySettings);
+router.post('/:id/holidays', authenticate, companyController.addHoliday);
+router.delete('/:id/holidays/:holidayId', authenticate, companyController.removeHoliday);
+
 module.exports = router;

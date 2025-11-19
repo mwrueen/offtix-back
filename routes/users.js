@@ -13,6 +13,7 @@ router.post('/upload-photo', authenticate, upload.fields([{ name: 'profilePictur
 router.get('/company/:companyId', authenticate, userController.getCompanyEmployees);
 router.get('/:id', userController.getUserById);
 router.put('/:id', validateUser, userController.updateUser);
+router.put('/:id/password', authenticate, userController.updateUserPassword);
 router.delete('/:id', userController.deleteUser);
 
 module.exports = router;
