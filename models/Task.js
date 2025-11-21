@@ -39,10 +39,6 @@ const taskSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
-  dependencies: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task'
-  }],
   duration: {
     value: {
       type: Number,

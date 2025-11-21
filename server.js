@@ -1,9 +1,11 @@
+// Load environment variables first
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const session = require('express-session');
 const passport = require('./config/passport');
-require('dotenv').config();
 const { connectDatabase } = require('./config/database');
 
 const userRoutes = require('./routes/users');

@@ -8,7 +8,7 @@ exports.validateUser = [
   body('email')
     .isEmail()
     .withMessage('Please provide a valid email')
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
 ];
 
 exports.validateSignup = [
@@ -19,7 +19,7 @@ exports.validateSignup = [
   body('email')
     .isEmail()
     .withMessage('Please provide a valid email')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long')
@@ -29,7 +29,7 @@ exports.validateSignin = [
   body('email')
     .isEmail()
     .withMessage('Please provide a valid email')
-    .normalizeEmail(),
+    .normalizeEmail({ gmail_remove_dots: false }),
   body('password')
     .notEmpty()
     .withMessage('Password is required')

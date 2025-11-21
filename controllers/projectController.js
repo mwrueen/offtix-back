@@ -1,6 +1,7 @@
 const Project = require('../models/Project');
 const Company = require('../models/Company');
 const User = require('../models/User');
+const Task = require('../models/Task');
 const { validationResult } = require('express-validator');
 
 exports.getProjects = async (req, res) => {
@@ -125,10 +126,10 @@ exports.getProjectById = async (req, res) => {
 
     const user = await User.findById(req.user._id);
     const isSuperAdmin = user.role === 'superadmin';
-    
+
     // Check if user has access to this project
     let hasAccess = false;
-    
+
     // Superadmin always has access
     if (isSuperAdmin) {
       hasAccess = true;
@@ -141,18 +142,20 @@ exports.getProjectById = async (req, res) => {
     else if (project.members.some(member => member.user._id.equals(req.user._id))) {
       hasAccess = true;
     }
-    // Check if project belongs to a company and user has access to that company
+    // Check if project belongs to a company and user is the company owner (not just a member)
     else if (project.company) {
       const company = await Company.findById(project.company._id);
       if (company) {
-        // Check if user is company owner or member
-        hasAccess = company.owner.toString() === req.user._id.toString() ||
-                   company.members.some(member => member.user.toString() === req.user._id.toString());
+        // Only company owner has access to all projects, not regular members
+        hasAccess = company.owner.toString() === req.user._id.toString();
       }
     }
     
     if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You do not have permission to view tasks for this project.'
+      });
     }
 
     res.json(project);
@@ -368,8 +371,7 @@ exports.getProjectAnalytics = async (req, res) => {
       .populate('owner', 'name email')
       .populate('members.user', 'name email')
       .populate('milestones')
-      .populate('risks')
-      .populate('dependencies');
+      .populate('risks');
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
