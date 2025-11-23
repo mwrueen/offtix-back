@@ -143,6 +143,26 @@ const companySchema = new mongoose.Schema({
         default: 5,
         min: 1,
         max: 7
+      },
+      workingHoursStart: {
+        type: String,
+        default: '09:00',
+        validate: {
+          validator: function(time) {
+            return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
+          },
+          message: 'Working hours start must be in HH:MM format'
+        }
+      },
+      workingHoursEnd: {
+        type: String,
+        default: '17:00',
+        validate: {
+          validator: function(time) {
+            return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
+          },
+          message: 'Working hours end must be in HH:MM format'
+        }
       }
     },
     workingDays: {
