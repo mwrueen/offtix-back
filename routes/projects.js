@@ -75,4 +75,7 @@ router.put('/:id/settings', projectController.updateProjectSettings);
 router.post('/:id/holidays', projectController.addHoliday);
 router.delete('/:id/holidays/:holidayId', projectController.removeHoliday);
 
+// Project status management
+router.put('/:id/status', projectController.updateProjectStatus);
+
 module.exports = router;

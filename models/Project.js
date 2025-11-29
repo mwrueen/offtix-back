@@ -12,8 +12,8 @@ const projectSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['planning', 'active', 'completed', 'on-hold'],
-    default: 'planning'
+    enum: ['not_started', 'running', 'paused', 'cancelled', 'closed'],
+    default: 'not_started'
   },
   priority: {
     type: String,
@@ -21,8 +21,16 @@ const projectSchema = new mongoose.Schema({
     default: 'medium'
   },
   startDate: {
-    type: Date,
-    default: Date.now
+    type: Date
+  },
+  scheduledStartDate: {
+    type: Date
+  },
+  pausedAt: {
+    type: Date
+  },
+  resumedAt: {
+    type: Date
   },
   endDate: {
     type: Date

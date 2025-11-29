@@ -1137,3 +1137,90 @@ exports.removeHoliday = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Update project status with pause/resume logic
+exports.updateProjectStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, scheduledStartDate } = req.body;
+
+    const project = await Project.findById(id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check if user is project owner
+    const isOwner = project.owner.toString() === req.user._id.toString();
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Only project owner can change project status' });
+    }
+
+    const validStatuses = ['not_started', 'running', 'paused', 'cancelled', 'closed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const previousStatus = project.status;
+    const now = new Date();
+
+    // Handle status transitions
+    if (status === 'paused' && previousStatus === 'running') {
+      // Project is being paused - store pause timestamp
+      project.pausedAt = now;
+      project.status = status;
+      await project.addActivity('project_paused', 'Project paused', req.user._id);
+    } else if (status === 'running' && previousStatus === 'paused') {
+      // Project is being resumed - extend task due dates
+      if (project.pausedAt) {
+        const pauseDuration = now - project.pausedAt; // milliseconds
+        const pauseDays = Math.ceil(pauseDuration / (1000 * 60 * 60 * 24));
+
+        // Find all incomplete tasks and extend their due dates
+        const tasks = await Task.find({
+          project: id,
+          status: { $nin: ['done', 'completed'] }
+        });
+
+        for (const task of tasks) {
+          if (task.dueDate) {
+            const newDueDate = new Date(task.dueDate);
+            newDueDate.setDate(newDueDate.getDate() + pauseDays);
+            task.dueDate = newDueDate;
+          }
+          if (task.startDate && new Date(task.startDate) > project.pausedAt) {
+            const newStartDate = new Date(task.startDate);
+            newStartDate.setDate(newStartDate.getDate() + pauseDays);
+            task.startDate = newStartDate;
+          }
+          await task.save();
+        }
+
+        project.resumedAt = now;
+        await project.addActivity('project_resumed', `Project resumed. ${tasks.length} task dates extended by ${pauseDays} days.`, req.user._id);
+      }
+      project.pausedAt = null;
+      project.status = status;
+    } else if (status === 'running' && previousStatus === 'not_started') {
+      // Project is starting
+      project.startDate = now;
+      project.status = status;
+      await project.addActivity('project_started', 'Project started', req.user._id);
+    } else if (status === 'not_started' && scheduledStartDate) {
+      // Schedule project to start
+      project.scheduledStartDate = new Date(scheduledStartDate);
+      project.status = status;
+      await project.addActivity('project_scheduled', `Project scheduled to start on ${new Date(scheduledStartDate).toLocaleDateString()}`, req.user._id);
+    } else {
+      project.status = status;
+      await project.addActivity('status_changed', `Project status changed to ${status}`, req.user._id);
+    }
+
+    await project.save();
+    await project.populate('owner', 'name email');
+    await project.populate('members.user', 'name email');
+
+    res.json(project);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
