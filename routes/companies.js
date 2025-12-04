@@ -18,4 +18,7 @@ router.put('/:id/settings', authenticate, companyController.updateCompanySetting
 router.post('/:id/holidays', authenticate, companyController.addHoliday);
 router.delete('/:id/holidays/:holidayId', authenticate, companyController.removeHoliday);
 
+// Workforce Route - Get employees with their tasks
+router.get('/:id/workforce', authenticate, companyController.getWorkforce);
+
 module.exports = router;

@@ -1224,3 +1224,182 @@ exports.updateProjectStatus = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Get project cost breakdown
+exports.getProjectCosts = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id)
+      .populate('owner', 'name email')
+      .populate('members.user', 'name email')
+      .populate('company');
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check access
+    const hasAccess = project.owner._id.toString() === req.user._id.toString() ||
+                      project.members.some(m => m.user._id.toString() === req.user._id.toString()) ||
+                      req.user.role === 'superadmin';
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get company settings for salary rates
+    let employeeSalaries = {};
+    let hoursPerDay = project.settings?.timeTracking?.hoursPerDay || 8;
+    let daysPerWeek = project.settings?.timeTracking?.daysPerWeek || 5;
+
+    if (project.company) {
+      const company = await Company.findById(project.company._id)
+        .populate('members.user', 'name email');
+
+      if (company) {
+        hoursPerDay = company.settings?.timeTracking?.hoursPerDay || hoursPerDay;
+        daysPerWeek = company.settings?.timeTracking?.daysPerWeek || daysPerWeek;
+
+        // Build salary map
+        company.members.forEach(member => {
+          if (member.user) {
+            employeeSalaries[member.user._id.toString()] = {
+              monthlySalary: member.currentSalary || 0,
+              designation: member.designation
+            };
+          }
+        });
+      }
+    }
+
+    const workingDaysPerMonth = daysPerWeek * 4.33;
+    const workingHoursPerMonth = workingDaysPerMonth * hoursPerDay;
+
+    // Helper function to calculate hourly rate
+    const calculateHourlyRate = (monthlySalary) => {
+      if (!monthlySalary || monthlySalary <= 0) return 0;
+      return monthlySalary / workingHoursPerMonth;
+    };
+
+    // Helper function to convert duration to hours
+    const durationToHours = (duration) => {
+      if (!duration || !duration.value) return 0;
+      switch (duration.unit) {
+        case 'minutes': return duration.value / 60;
+        case 'hours': return duration.value;
+        case 'days': return duration.value * hoursPerDay;
+        case 'weeks': return duration.value * daysPerWeek * hoursPerDay;
+        default: return duration.value;
+      }
+    };
+
+    // Get all tasks for this project
+    const tasks = await Task.find({ project: project._id })
+      .populate('assignees', 'name email')
+      .populate('status', 'name color');
+
+    // Calculate costs per task
+    const taskCosts = tasks.map(task => {
+      const durationHours = durationToHours(task.duration);
+      let taskTotalCost = 0;
+      const assigneeCosts = [];
+
+      if (task.assignees && task.assignees.length > 0) {
+        task.assignees.forEach(assignee => {
+          const salaryInfo = employeeSalaries[assignee._id.toString()] || { monthlySalary: 0 };
+          const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary);
+          const assigneeCost = (durationHours * hourlyRate) / task.assignees.length;
+
+          assigneeCosts.push({
+            user: { _id: assignee._id, name: assignee.name, email: assignee.email },
+            monthlySalary: salaryInfo.monthlySalary,
+            hourlyRate: Math.round(hourlyRate * 100) / 100,
+            hoursWorked: Math.round((durationHours / task.assignees.length) * 100) / 100,
+            cost: Math.round(assigneeCost * 100) / 100
+          });
+
+          taskTotalCost += assigneeCost;
+        });
+      }
+
+      const statusName = task.status?.name?.toLowerCase() || '';
+      const isCompleted = statusName === 'done' || statusName === 'completed';
+
+      return {
+        _id: task._id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        duration: task.duration,
+        durationHours: Math.round(durationHours * 100) / 100,
+        startDate: task.startDate,
+        dueDate: task.dueDate,
+        isCompleted,
+        assignees: assigneeCosts,
+        totalCost: Math.round(taskTotalCost * 100) / 100
+      };
+    });
+
+    // Calculate summary
+    const totalCost = taskCosts.reduce((sum, t) => sum + t.totalCost, 0);
+    const completedCost = taskCosts.filter(t => t.isCompleted).reduce((sum, t) => sum + t.totalCost, 0);
+    const pendingCost = totalCost - completedCost;
+    const totalHours = taskCosts.reduce((sum, t) => sum + t.durationHours, 0);
+
+    // Cost by employee
+    const costByEmployee = {};
+    taskCosts.forEach(task => {
+      task.assignees.forEach(assignee => {
+        const id = assignee.user._id.toString();
+        if (!costByEmployee[id]) {
+          costByEmployee[id] = {
+            user: assignee.user,
+            totalCost: 0,
+            totalHours: 0,
+            hourlyRate: assignee.hourlyRate,
+            taskCount: 0
+          };
+        }
+        costByEmployee[id].totalCost += assignee.cost;
+        costByEmployee[id].totalHours += assignee.hoursWorked;
+        costByEmployee[id].taskCount += 1;
+      });
+    });
+
+    // Convert to array and round values
+    const employeeCostBreakdown = Object.values(costByEmployee).map(e => ({
+      ...e,
+      totalCost: Math.round(e.totalCost * 100) / 100,
+      totalHours: Math.round(e.totalHours * 100) / 100
+    }));
+
+    res.json({
+      project: {
+        _id: project._id,
+        title: project.title,
+        budget: project.budget,
+        actualCost: project.actualCost
+      },
+      settings: {
+        hoursPerDay,
+        daysPerWeek,
+        workingHoursPerMonth: Math.round(workingHoursPerMonth * 100) / 100
+      },
+      summary: {
+        totalTasks: tasks.length,
+        completedTasks: taskCosts.filter(t => t.isCompleted).length,
+        pendingTasks: taskCosts.filter(t => !t.isCompleted).length,
+        totalHours: Math.round(totalHours * 100) / 100,
+        totalCost: Math.round(totalCost * 100) / 100,
+        completedCost: Math.round(completedCost * 100) / 100,
+        pendingCost: Math.round(pendingCost * 100) / 100,
+        budgetRemaining: project.budget?.amount ? Math.round((project.budget.amount - totalCost) * 100) / 100 : null,
+        budgetUtilization: project.budget?.amount ? Math.round((totalCost / project.budget.amount) * 10000) / 100 : null
+      },
+      employeeBreakdown: employeeCostBreakdown,
+      tasks: taskCosts
+    });
+  } catch (error) {
+    console.error('Error getting project costs:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

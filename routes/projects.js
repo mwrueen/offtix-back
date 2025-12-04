@@ -78,4 +78,7 @@ router.delete('/:id/holidays/:holidayId', projectController.removeHoliday);
 // Project status management
 router.put('/:id/status', projectController.updateProjectStatus);
 
+// Project cost breakdown
+router.get('/:id/costs', projectController.getProjectCosts);
+
 module.exports = router;
