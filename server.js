@@ -2,11 +2,14 @@
 require('dotenv').config();
 
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const path = require('path');
 const session = require('express-session');
 const passport = require('./config/passport');
 const { connectDatabase } = require('./config/database');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const userRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
@@ -23,8 +26,22 @@ const notificationRoutes = require('./routes/notifications');
 const employeeRoutes = require('./routes/employees');
 const holidayRoutes = require('./routes/holidays');
 const leaveRoutes = require('./routes/leaves');
+const chatRoutes = require('./routes/chat');
 
 const app = express();
+const server = http.createServer(app);
+
+// Socket.io setup with CORS
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Make io accessible to routes
+app.set('io', io);
 
 // Middleware
 app.use(cors({
@@ -76,9 +93,161 @@ app.use('/api/projects/:projectId/phases', phaseRoutes);
 app.use('/api/companies/:companyId/employees', employeeRoutes);
 app.use('/api/companies/:companyId/holidays', holidayRoutes);
 app.use('/api/companies/:companyId/leaves', leaveRoutes);
+app.use('/api/projects/:projectId/chat', chatRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });
+});
+
+// Socket.io authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error: No token provided'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.userId;
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error: Invalid token'));
+  }
+});
+
+// Socket.io connection handling
+const User = require('./models/User');
+const Message = require('./models/Message');
+const Project = require('./models/Project');
+
+io.on('connection', async (socket) => {
+  console.log(`User connected: ${socket.userId}`);
+
+  // Join user to their own room for private notifications
+  socket.join(`user:${socket.userId}`);
+
+  // Join a project chat room
+  socket.on('join-project', async (projectId) => {
+    try {
+      // Verify user has access to this project
+      const project = await Project.findOne({
+        _id: projectId,
+        $or: [
+          { owner: socket.userId },
+          { 'members.user': socket.userId }
+        ]
+      });
+
+      if (!project) {
+        socket.emit('error', { message: 'Access denied to this project' });
+        return;
+      }
+
+      socket.join(`project:${projectId}`);
+      console.log(`User ${socket.userId} joined project:${projectId}`);
+
+      // Notify others in the room
+      const user = await User.findById(socket.userId).select('name profile.profilePicture');
+      socket.to(`project:${projectId}`).emit('user-joined', {
+        userId: socket.userId,
+        userName: user?.name,
+        avatar: user?.profile?.profilePicture
+      });
+    } catch (error) {
+      console.error('Error joining project:', error);
+      socket.emit('error', { message: 'Failed to join project chat' });
+    }
+  });
+
+  // Leave a project chat room
+  socket.on('leave-project', (projectId) => {
+    socket.leave(`project:${projectId}`);
+    console.log(`User ${socket.userId} left project:${projectId}`);
+  });
+
+  // Send a message
+  socket.on('send-message', async (data) => {
+    try {
+      const { projectId, content, mentions = [], replyTo } = data;
+
+      // Verify user has access
+      const project = await Project.findOne({
+        _id: projectId,
+        $or: [
+          { owner: socket.userId },
+          { 'members.user': socket.userId }
+        ]
+      });
+
+      if (!project) {
+        socket.emit('error', { message: 'Access denied' });
+        return;
+      }
+
+      // Create message
+      const message = await Message.create({
+        project: projectId,
+        sender: socket.userId,
+        content,
+        mentions,
+        replyTo,
+        type: 'text'
+      });
+
+      // Populate sender and mentions
+      await message.populate('sender', 'name email profile.profilePicture');
+      await message.populate('mentions', 'name email');
+      if (replyTo) {
+        await message.populate('replyTo', 'content sender');
+      }
+
+      // Emit to all users in the project room
+      io.to(`project:${projectId}`).emit('new-message', message);
+
+      // Send notifications to mentioned users
+      mentions.forEach(userId => {
+        io.to(`user:${userId}`).emit('mention-notification', {
+          projectId,
+          projectTitle: project.title,
+          messageId: message._id,
+          senderName: message.sender.name
+        });
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+
+  // Typing indicator
+  socket.on('typing', async (data) => {
+    const { projectId, isTyping } = data;
+    const user = await User.findById(socket.userId).select('name');
+    socket.to(`project:${projectId}`).emit('user-typing', {
+      userId: socket.userId,
+      userName: user?.name,
+      isTyping
+    });
+  });
+
+  // Mark messages as read
+  socket.on('mark-read', async (data) => {
+    const { projectId, messageIds } = data;
+    try {
+      await Message.updateMany(
+        { _id: { $in: messageIds }, project: projectId },
+        { $addToSet: { readBy: { user: socket.userId, readAt: new Date() } } }
+      );
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  });
+
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.userId}`);
+  });
 });
 
 // Serve React app for all non-API routes
@@ -89,7 +258,8 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Socket.io enabled for real-time chat');
   console.log('File upload limit: 10MB');
 });
