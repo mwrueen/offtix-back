@@ -205,6 +205,25 @@ io.on('connection', async (socket) => {
       // Emit to all users in the project room
       io.to(`project:${projectId}`).emit('new-message', message);
 
+      // Send chat notification to all project members (for unread counter)
+      // Get all project members
+      const projectMembers = [project.owner.toString(), ...project.members.map(m => m.user.toString())];
+
+      // Send notification to each member's personal room (excluding the sender)
+      projectMembers.forEach(memberId => {
+        if (memberId !== socket.userId) {
+          io.to(`user:${memberId}`).emit('chat-notification', {
+            projectId,
+            projectTitle: project.title,
+            messageId: message._id,
+            senderId: socket.userId,
+            senderName: message.sender.name,
+            content: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+            timestamp: message.createdAt
+          });
+        }
+      });
+
       // Send notifications to mentioned users
       mentions.forEach(userId => {
         io.to(`user:${userId}`).emit('mention-notification', {

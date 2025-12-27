@@ -308,11 +308,11 @@ exports.updateDesignationPermissions = async (req, res) => {
     const user = await User.findById(req.user._id);
     const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
-    
-    const canEditDesignation = user.role === 'superadmin' || 
+
+    const canEditDesignation = user.role === 'superadmin' ||
                               company.owner.toString() === req.user._id.toString() ||
                               (userDesignation && userDesignation.permissions.editDesignation);
-    
+
     if (!canEditDesignation) {
       return res.status(403).json({ message: 'You do not have permission to edit designations' });
     }
@@ -324,7 +324,54 @@ exports.updateDesignationPermissions = async (req, res) => {
 
     designation.permissions = permissions;
     await company.save();
-    
+
+    const populatedCompany = await Company.findById(company._id)
+      .populate('owner', 'name email')
+      .populate('members.user', 'name email');
+
+    res.json(populatedCompany);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+exports.deleteDesignation = async (req, res) => {
+  try {
+    const { designationId } = req.params;
+    const company = await Company.findById(req.params.id);
+
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    const user = await User.findById(req.user._id);
+    const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
+    const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
+
+    const canDeleteDesignation = user.role === 'superadmin' ||
+                                company.owner.toString() === req.user._id.toString() ||
+                                (userDesignation && userDesignation.permissions.deleteDesignation);
+
+    if (!canDeleteDesignation) {
+      return res.status(403).json({ message: 'You do not have permission to delete designations' });
+    }
+
+    const designation = company.designations.id(designationId);
+    if (!designation) {
+      return res.status(404).json({ message: 'Designation not found' });
+    }
+
+    // Check if any members are using this designation
+    const membersWithDesignation = company.members.filter(m => m.designation === designation.name);
+    if (membersWithDesignation.length > 0) {
+      return res.status(400).json({
+        message: `Cannot delete designation. ${membersWithDesignation.length} employee(s) are assigned to this role.`
+      });
+    }
+
+    company.designations.pull(designationId);
+    await company.save();
+
     const populatedCompany = await Company.findById(company._id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email');
@@ -792,5 +839,280 @@ exports.getWorkforce = async (req, res) => {
   } catch (error) {
     console.error('Error getting workforce:', error);
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Update employee's reporting manager
+exports.updateReportingManager = async (req, res) => {
+  try {
+    const { memberId, reportsTo } = req.body;
+    const company = await Company.findById(req.params.id);
+
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    const user = await User.findById(req.user._id);
+    const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
+    const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
+
+    const canEditEmployee = user.role === 'superadmin' ||
+                           company.owner.toString() === req.user._id.toString() ||
+                           (userDesignation && userDesignation.permissions.editEmployee);
+
+    if (!canEditEmployee) {
+      return res.status(403).json({ message: 'You do not have permission to update reporting structure' });
+    }
+
+    const member = company.members.id(memberId);
+    if (!member) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    // Prevent circular reporting
+    if (reportsTo) {
+      if (member.user.toString() === reportsTo) {
+        return res.status(400).json({ message: 'Employee cannot report to themselves' });
+      }
+      // Check if the new manager reports to this employee (direct circular)
+      const managerMember = company.members.find(m => m.user.toString() === reportsTo);
+      if (managerMember && managerMember.reportsTo && managerMember.reportsTo.toString() === member.user.toString()) {
+        return res.status(400).json({ message: 'Circular reporting structure detected' });
+      }
+    }
+
+    member.reportsTo = reportsTo || null;
+    await company.save();
+
+    const populatedCompany = await Company.findById(company._id)
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile')
+      .populate('members.reportsTo', 'name email profile');
+
+    res.json(populatedCompany);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Get organization hierarchy/organogram
+exports.getOrganogram = async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.id)
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile')
+      .populate('members.reportsTo', 'name email');
+
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user has access
+    const hasAccess = company.owner._id.toString() === req.user._id.toString() ||
+                     company.members.some(m => m.user._id.toString() === req.user._id.toString());
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    // Build hierarchy tree
+    const buildHierarchy = () => {
+      const nodes = [];
+
+      // Add owner as root if they're not in members
+      const ownerInMembers = company.members.some(m => m.user._id.toString() === company.owner._id.toString());
+
+      if (!ownerInMembers) {
+        nodes.push({
+          id: company.owner._id.toString(),
+          name: company.owner.name,
+          email: company.owner.email,
+          avatar: company.owner.profile?.profilePicture,
+          designation: 'Owner',
+          level: 0,
+          reportsTo: null,
+          isOwner: true
+        });
+      }
+
+      // Add all members
+      company.members.forEach(member => {
+        const designation = company.designations.find(d => d.name === member.designation);
+        nodes.push({
+          id: member.user._id.toString(),
+          memberId: member._id.toString(),
+          name: member.user.name,
+          email: member.user.email,
+          avatar: member.user.profile?.profilePicture,
+          designation: member.designation,
+          level: designation?.level || 5,
+          reportsTo: member.reportsTo ? member.reportsTo._id.toString() : null,
+          reportsToName: member.reportsTo ? member.reportsTo.name : null,
+          isOwner: company.owner._id.toString() === member.user._id.toString(),
+          joinedAt: member.joinedAt
+        });
+      });
+
+      // Build tree structure
+      const buildTree = (parentId) => {
+        return nodes
+          .filter(node => node.reportsTo === parentId)
+          .sort((a, b) => a.level - b.level)
+          .map(node => ({
+            ...node,
+            children: buildTree(node.id)
+          }));
+      };
+
+      // Find root nodes (no manager or owner)
+      const rootNodes = nodes
+        .filter(node => !node.reportsTo || node.isOwner)
+        .sort((a, b) => a.level - b.level)
+        .map(node => ({
+          ...node,
+          children: buildTree(node.id)
+        }));
+
+      return rootNodes;
+    };
+
+    const hierarchy = buildHierarchy();
+
+    // Get all employees flat list for dropdown selection
+    const allEmployees = company.members.map(member => {
+      const designation = company.designations.find(d => d.name === member.designation);
+      return {
+        id: member.user._id.toString(),
+        memberId: member._id.toString(),
+        name: member.user.name,
+        email: member.user.email,
+        designation: member.designation,
+        level: designation?.level || 5,
+        reportsTo: member.reportsTo?._id?.toString() || null
+      };
+    });
+
+    // Add owner if not in members
+    if (!company.members.some(m => m.user._id.toString() === company.owner._id.toString())) {
+      allEmployees.unshift({
+        id: company.owner._id.toString(),
+        memberId: null,
+        name: company.owner.name,
+        email: company.owner.email,
+        designation: 'Owner',
+        level: 0,
+        reportsTo: null
+      });
+    }
+
+    res.json({
+      hierarchy,
+      employees: allEmployees,
+      designations: company.designations.map(d => ({
+        id: d._id.toString(),
+        name: d.name,
+        level: d.level || 5
+      })).sort((a, b) => a.level - b.level)
+    });
+  } catch (error) {
+    console.error('Error getting organogram:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update designation level
+exports.updateDesignationLevel = async (req, res) => {
+  try {
+    const { designationId, level } = req.body;
+    const company = await Company.findById(req.params.id);
+
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    const user = await User.findById(req.user._id);
+    const canEdit = user.role === 'superadmin' || company.owner.toString() === req.user._id.toString();
+
+    if (!canEdit) {
+      return res.status(403).json({ message: 'Only owners can update designation hierarchy levels' });
+    }
+
+    const designation = company.designations.id(designationId);
+    if (!designation) {
+      return res.status(404).json({ message: 'Designation not found' });
+    }
+
+    designation.level = level;
+    await company.save();
+
+    res.json({ message: 'Designation level updated', designation });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Update company profile information
+exports.updateCompanyProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      industry,
+      website,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      country,
+      zipCode,
+      foundedYear,
+      companySize
+    } = req.body;
+
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user is owner or has manageCompanySettings permission
+    const user = await User.findById(req.user._id);
+    const isOwner = company.owner.toString() === req.user._id.toString();
+    const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
+    const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
+
+    const canManage = user.role === 'superadmin' || isOwner ||
+                     (userDesignation && userDesignation.permissions.manageCompanySettings);
+
+    if (!canManage) {
+      return res.status(403).json({ message: 'You do not have permission to update company profile' });
+    }
+
+    // Update fields
+    if (name !== undefined) company.name = name;
+    if (description !== undefined) company.description = description;
+    if (industry !== undefined) company.industry = industry;
+    if (website !== undefined) company.website = website;
+    if (email !== undefined) company.email = email;
+    if (phone !== undefined) company.phone = phone;
+    if (address !== undefined) company.address = address;
+    if (city !== undefined) company.city = city;
+    if (state !== undefined) company.state = state;
+    if (country !== undefined) company.country = country;
+    if (zipCode !== undefined) company.zipCode = zipCode;
+    if (foundedYear !== undefined) company.foundedYear = foundedYear;
+    if (companySize !== undefined) company.companySize = companySize;
+
+    await company.save();
+
+    const updatedCompany = await Company.findById(id)
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile');
+
+    res.json(updatedCompany);
+  } catch (error) {
+    console.error('Error updating company profile:', error);
+    res.status(400).json({ message: error.message });
   }
 };

@@ -65,6 +65,10 @@ const companySchema = new mongoose.Schema({
       required: true
     },
     description: String,
+    level: {
+      type: Number,
+      default: 5 // Lower number = higher in hierarchy (1 = top level)
+    },
     permissions: {
       addEmployee: { type: Boolean, default: false },
       viewEmployeeList: { type: Boolean, default: true },
@@ -94,6 +98,11 @@ const companySchema = new mongoose.Schema({
       type: String,
       required: false,
       default: 'Employee'
+    },
+    reportsTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
     },
     currentSalary: {
       type: Number,
@@ -208,6 +217,7 @@ companySchema.pre('save', function(next) {
       {
         name: 'Managing Director',
         description: 'Chief Executive Officer',
+        level: 1,
         permissions: {
           addEmployee: true,
           viewEmployeeList: true,
@@ -225,6 +235,7 @@ companySchema.pre('save', function(next) {
       {
         name: 'HR Manager',
         description: 'Human Resources Manager',
+        level: 2,
         permissions: {
           addEmployee: true,
           viewEmployeeList: true,
@@ -242,6 +253,7 @@ companySchema.pre('save', function(next) {
       {
         name: 'Project Manager',
         description: 'Project Management Lead',
+        level: 2,
         permissions: {
           addEmployee: false,
           viewEmployeeList: true,
@@ -257,8 +269,45 @@ companySchema.pre('save', function(next) {
         }
       },
       {
+        name: 'Team Lead',
+        description: 'Team Leadership Role',
+        level: 3,
+        permissions: {
+          addEmployee: false,
+          viewEmployeeList: true,
+          editEmployee: false,
+          createDesignation: false,
+          viewDesignations: true,
+          editDesignation: false,
+          deleteDesignation: false,
+          createProject: false,
+          assignEmployeeToProject: true,
+          removeEmployeeFromProject: false,
+          manageCompanySettings: false
+        }
+      },
+      {
+        name: 'Senior Employee',
+        description: 'Senior Level Employee',
+        level: 4,
+        permissions: {
+          addEmployee: false,
+          viewEmployeeList: true,
+          editEmployee: false,
+          createDesignation: false,
+          viewDesignations: true,
+          editDesignation: false,
+          deleteDesignation: false,
+          createProject: false,
+          assignEmployeeToProject: false,
+          removeEmployeeFromProject: false,
+          manageCompanySettings: false
+        }
+      },
+      {
         name: 'Employee',
         description: 'General Employee',
+        level: 5,
         permissions: {
           addEmployee: false,
           viewEmployeeList: true,
@@ -275,14 +324,14 @@ companySchema.pre('save', function(next) {
       }
     ];
   }
-  
+
   // Fix existing members without designation
   this.members.forEach(member => {
     if (!member.designation) {
       member.designation = 'Employee';
     }
   });
-  
+
   next();
 });
 

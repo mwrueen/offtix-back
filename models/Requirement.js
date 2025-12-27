@@ -8,7 +8,7 @@ const requirementSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    required: true
+    default: ''
   },
   type: {
     type: String,
