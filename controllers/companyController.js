@@ -410,6 +410,10 @@ exports.getUserCompany = async (req, res) => {
 
 exports.getUserCompanies = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const userId = req.user._id;
 
     // Find companies where user is owner or member
@@ -429,7 +433,19 @@ exports.getUserCompanies = async (req, res) => {
       let userDesignation = null;
       let userPermissions = {};
 
-      if (company.owner._id.toString() === userId.toString()) {
+      // Handle owner check - owner might be ObjectId or populated object
+      let ownerId;
+      if (company.owner) {
+        if (typeof company.owner === 'object' && company.owner._id) {
+          ownerId = company.owner._id.toString();
+        } else if (typeof company.owner === 'object' && company.owner.toString) {
+          ownerId = company.owner.toString();
+        } else {
+          ownerId = company.owner.toString();
+        }
+      }
+      
+      if (ownerId && ownerId === userId.toString()) {
         userRole = 'owner';
         userDesignation = 'Owner';
         // Owner has all permissions
@@ -491,7 +507,9 @@ exports.getUserCompanies = async (req, res) => {
 
     res.json(companiesWithRole);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error in getUserCompanies:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 

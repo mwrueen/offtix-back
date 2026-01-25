@@ -6,6 +6,10 @@ const { validationResult } = require('express-validator');
 
 exports.getProjects = async (req, res) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const user = await User.findById(req.user._id).populate('company');
     const companyId = req.headers['x-company-id'] || req.query.companyId;
     
@@ -56,7 +60,9 @@ exports.getProjects = async (req, res) => {
     
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error in getProjects:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 

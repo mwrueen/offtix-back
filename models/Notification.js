@@ -8,7 +8,16 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['invitation', 'project_assignment', 'salary_update', 'role_change', 'general'],
+    enum: [
+      'invitation',
+      'project_assignment',
+      'salary_update',
+      'role_change',
+      'general',
+      'task_role_assignment',  // Notified when assigned to a role in a task
+      'task_role_handoff',     // Notified when previous role hands off to you
+      'task_role_completed'    // Notified when your role is marked complete
+    ],
     required: true
   },
   title: {
@@ -24,7 +33,33 @@ const notificationSchema = new mongoose.Schema({
   },
   relatedModel: {
     type: String,
-    enum: ['Invitation', 'Project', 'Company', 'Task']
+    enum: ['Invitation', 'Project', 'Company', 'Task', 'TaskRole']
+  },
+  // Additional metadata for role notifications
+  metadata: {
+    taskId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Task'
+    },
+    roleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TaskRole'
+    },
+    roleName: String,
+    handoffComment: String,
+    handoffFiles: [{
+      filename: String,
+      originalName: String,
+      path: String
+    }],
+    handoffUrls: [{
+      title: String,
+      url: String
+    }],
+    fromUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   },
   isRead: {
     type: Boolean,

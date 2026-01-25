@@ -119,6 +119,10 @@ exports.getCompanyInvitations = async (req, res) => {
 // Get user's pending invitations
 exports.getUserInvitations = async (req, res) => {
   try {
+    if (!req.user || !req.user.email) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     const userEmail = req.user.email.toLowerCase();
 
     const invitations = await Invitation.find({
@@ -130,12 +134,20 @@ exports.getUserInvitations = async (req, res) => {
       .sort({ createdAt: -1 });
 
     // Filter out expired invitations
-    const validInvitations = invitations.filter(inv => !inv.isExpired());
+    const validInvitations = invitations.filter(inv => {
+      try {
+        return !inv.isExpired();
+      } catch (error) {
+        // If isExpired fails, check manually
+        return inv.expiresAt && new Date(inv.expiresAt) > new Date();
+      }
+    });
 
     res.json(validInvitations);
   } catch (error) {
     console.error('Error fetching user invitations:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ message: error.message || 'Internal server error' });
   }
 };
 
