@@ -129,7 +129,7 @@ exports.getUserInvitations = async (req, res) => {
       email: userEmail,
       status: 'pending'
     })
-      .populate('company', 'name description')
+      .populate('company', 'name description currency')
       .populate('invitedBy', 'name email')
       .sort({ createdAt: -1 });
 

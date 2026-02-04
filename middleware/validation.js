@@ -46,7 +46,7 @@ exports.validateProject = [
     .withMessage('Description must be at least 10 characters long'),
   body('status')
     .optional()
-    .isIn(['planning', 'active', 'completed', 'on-hold'])
+    .isIn(['not_started', 'running', 'paused', 'cancelled', 'closed'])
     .withMessage('Invalid status'),
   body('priority')
     .optional()

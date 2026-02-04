@@ -230,9 +230,12 @@ const projectSchema = new mongoose.Schema({
     },
     // Holidays (array of dates)
     holidays: [{
-      date: { type: Date, required: true },
+      date: { type: Date, required: false },  // For single-day holidays
+      startDate: { type: Date, required: false },  // For date range holidays
+      endDate: { type: Date, required: false },  // For date range holidays
       name: { type: String, required: true },
-      description: { type: String }
+      description: { type: String },
+      isRange: { type: Boolean, default: false }
     }],
     // Default Task Settings
     defaultTaskStatus: {

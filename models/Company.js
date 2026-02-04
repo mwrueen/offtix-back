@@ -54,6 +54,16 @@ const companySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  logo: {
+    type: String,
+    trim: true
+  },
+  currency: {
+    type: String,
+    enum: ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR', 'SGD', 'HKD', 'NZD', 'SEK', 'NOK', 'DKK', 'MXN', 'BRL', 'ZAR', 'AED', 'SAR'],
+    default: 'USD',
+    trim: true
+  },
   owner: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -187,13 +197,25 @@ const companySchema = new mongoose.Schema({
     holidays: [{
       date: {
         type: Date,
-        required: true
+        required: false  // Not required if startDate and endDate are provided
+      },
+      startDate: {
+        type: Date,
+        required: false
+      },
+      endDate: {
+        type: Date,
+        required: false
       },
       name: {
         type: String,
         required: true
       },
-      description: String
+      description: String,
+      isRange: {
+        type: Boolean,
+        default: false
+      }
     }],
     weekends: {
       type: [Number],

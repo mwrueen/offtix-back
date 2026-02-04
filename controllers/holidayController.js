@@ -25,9 +25,13 @@ exports.getCompanyHolidays = async (req, res) => {
     }
 
     const holidays = company.settings?.holidays || [];
-    
-    // Sort holidays by date
-    holidays.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Sort holidays by date (use startDate for range holidays, date for single-day holidays)
+    holidays.sort((a, b) => {
+      const dateA = a.isRange ? new Date(a.startDate) : new Date(a.date);
+      const dateB = b.isRange ? new Date(b.startDate) : new Date(b.date);
+      return dateA - dateB;
+    });
 
     res.json({
       company: {
@@ -46,10 +50,21 @@ exports.getCompanyHolidays = async (req, res) => {
 exports.addHoliday = async (req, res) => {
   try {
     const { companyId } = req.params;
-    const { date, name, description } = req.body;
-    
-    if (!date || !name) {
-      return res.status(400).json({ error: 'Date and name are required' });
+    const { date, startDate, endDate, name, description, isRange } = req.body;
+
+    // Validate: either date OR (startDate AND endDate) must be provided
+    if (!name) {
+      return res.status(400).json({ error: 'Holiday name is required' });
+    }
+
+    if (isRange) {
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'Start date and end date are required for date range holidays' });
+      }
+    } else {
+      if (!date) {
+        return res.status(400).json({ error: 'Date is required for single-day holidays' });
+      }
     }
 
     const company = await Company.findById(companyId);
@@ -79,27 +94,66 @@ exports.addHoliday = async (req, res) => {
       company.settings.holidays = [];
     }
 
-    // Check if holiday already exists on this date
-    const existingHoliday = company.settings.holidays.find(
-      h => new Date(h.date).toDateString() === new Date(date).toDateString()
-    );
+    // Parse dates to avoid timezone issues
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      if (dateStr.includes('T')) {
+        return new Date(dateStr);
+      } else {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      }
+    };
 
-    if (existingHoliday) {
-      return res.status(400).json({ error: 'A holiday already exists on this date' });
+    // Create holiday data object with all fields explicitly defined
+    let holidayData;
+
+    if (isRange) {
+      const parsedStartDate = parseDate(startDate);
+      const parsedEndDate = parseDate(endDate);
+
+      // Validate that endDate is after startDate
+      if (parsedEndDate < parsedStartDate) {
+        return res.status(400).json({ error: 'End date must be after start date' });
+      }
+
+      holidayData = {
+        name: name,
+        description: description || '',
+        isRange: true,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate
+        // Explicitly NOT including 'date' field for range holidays
+      };
+
+      console.log('Creating range holiday:', JSON.stringify(holidayData, null, 2));
+    } else {
+      holidayData = {
+        name: name,
+        description: description || '',
+        isRange: false,
+        date: parseDate(date)
+        // Explicitly NOT including 'startDate' and 'endDate' for single-day holidays
+      };
+
+      console.log('Creating single-day holiday:', JSON.stringify(holidayData, null, 2));
     }
 
     // Add holiday
-    company.settings.holidays.push({
-      date: new Date(date),
-      name,
-      description: description || ''
-    });
+    console.log('Holiday data before push:', JSON.stringify(holidayData, null, 2));
+    company.settings.holidays.push(holidayData);
 
-    await company.save();
+    // Mark the path as modified to ensure Mongoose saves it
+    company.markModified('settings.holidays');
+
+    const savedCompany = await company.save();
+
+    const savedHoliday = savedCompany.settings.holidays[savedCompany.settings.holidays.length - 1];
+    console.log('Saved holiday:', JSON.stringify(savedHoliday, null, 2));
 
     res.json({
       message: 'Holiday added successfully',
-      holidays: company.settings.holidays
+      holidays: savedCompany.settings.holidays
     });
   } catch (error) {
     console.error('Error adding holiday:', error);
@@ -111,7 +165,7 @@ exports.addHoliday = async (req, res) => {
 exports.updateHoliday = async (req, res) => {
   try {
     const { companyId, holidayId } = req.params;
-    const { date, name, description } = req.body;
+    const { date, startDate, endDate, name, description, isRange } = req.body;
     
     const company = await Company.findById(companyId);
     
@@ -142,8 +196,41 @@ exports.updateHoliday = async (req, res) => {
       return res.status(404).json({ error: 'Holiday not found' });
     }
 
+    // Helper function to parse dates
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      if (dateStr.includes('T')) {
+        return new Date(dateStr);
+      } else {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      }
+    };
+
     // Update holiday
-    if (date) holiday.date = new Date(date);
+    if (isRange !== undefined) {
+      holiday.isRange = isRange;
+      if (isRange) {
+        // Update to range holiday
+        if (startDate) holiday.startDate = parseDate(startDate);
+        if (endDate) holiday.endDate = parseDate(endDate);
+        holiday.date = undefined;  // Clear single date
+      } else {
+        // Update to single-day holiday
+        if (date) holiday.date = parseDate(date);
+        holiday.startDate = undefined;  // Clear range dates
+        holiday.endDate = undefined;
+      }
+    } else {
+      // Update existing type
+      if (holiday.isRange) {
+        if (startDate) holiday.startDate = parseDate(startDate);
+        if (endDate) holiday.endDate = parseDate(endDate);
+      } else {
+        if (date) holiday.date = parseDate(date);
+      }
+    }
+
     if (name) holiday.name = name;
     if (description !== undefined) holiday.description = description;
 
@@ -232,8 +319,15 @@ exports.getUpcomingHolidays = async (req, res) => {
 
     // Filter upcoming holidays and sort by date
     const upcomingHolidays = holidays
-      .filter(h => new Date(h.date) >= today)
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .filter(h => {
+        const holidayDate = h.isRange ? new Date(h.startDate) : new Date(h.date);
+        return holidayDate >= today;
+      })
+      .sort((a, b) => {
+        const dateA = a.isRange ? new Date(a.startDate) : new Date(a.date);
+        const dateB = b.isRange ? new Date(b.startDate) : new Date(b.date);
+        return dateA - dateB;
+      })
       .slice(0, parseInt(limit));
 
     res.json({

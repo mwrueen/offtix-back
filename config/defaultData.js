@@ -65,7 +65,7 @@ const createSampleProject = async () => {
   const project = await Project.create({
     title: 'Sample Project - Tabredon Demo',
     description: 'This is a sample project to demonstrate Tabredon\'s features including task management, sprints, phases, and different view modes.',
-    status: 'active',
+    status: 'running',
     priority: 'high',
     owner: adminUser._id,
     members: [{

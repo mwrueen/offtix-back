@@ -20,6 +20,7 @@ exports.createCompany = async (req, res) => {
       zipCode,
       foundedYear,
       companySize,
+      currency,
       founderRole,
       additionalRoles
     } = req.body;
@@ -38,6 +39,7 @@ exports.createCompany = async (req, res) => {
       zipCode,
       foundedYear,
       companySize,
+      currency,
       owner: req.user._id,
       members: [{
         user: req.user._id,
@@ -569,7 +571,22 @@ exports.updateCompanySettings = async (req, res) => {
 exports.addHoliday = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, name, description } = req.body;
+    const { date, startDate, endDate, name, description, isRange } = req.body;
+
+    // Validate: either date OR (startDate AND endDate) must be provided
+    if (!name) {
+      return res.status(400).json({ error: 'Holiday name is required' });
+    }
+
+    if (isRange) {
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'Start date and end date are required for date range holidays' });
+      }
+    } else {
+      if (!date) {
+        return res.status(400).json({ error: 'Date is required for single-day holidays' });
+      }
+    }
 
     const company = await Company.findById(id);
     if (!company) {
@@ -588,7 +605,47 @@ exports.addHoliday = async (req, res) => {
       company.settings.holidays = [];
     }
 
-    company.settings.holidays.push({ date, name, description });
+    // Parse dates to avoid timezone issues
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      if (dateStr.includes('T')) {
+        return new Date(dateStr);
+      } else {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      }
+    };
+
+    // Create holiday data object with all fields explicitly defined
+    let holidayData;
+
+    if (isRange) {
+      const parsedStartDate = parseDate(startDate);
+      const parsedEndDate = parseDate(endDate);
+
+      // Validate that endDate is after startDate
+      if (parsedEndDate < parsedStartDate) {
+        return res.status(400).json({ error: 'End date must be after start date' });
+      }
+
+      holidayData = {
+        name: name,
+        description: description || '',
+        isRange: true,
+        startDate: parsedStartDate,
+        endDate: parsedEndDate
+      };
+    } else {
+      holidayData = {
+        name: name,
+        description: description || '',
+        isRange: false,
+        date: parseDate(date)
+      };
+    }
+
+    company.settings.holidays.push(holidayData);
+    company.markModified('settings.holidays');
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
@@ -1086,7 +1143,8 @@ exports.updateCompanyProfile = async (req, res) => {
       country,
       zipCode,
       foundedYear,
-      companySize
+      companySize,
+      currency
     } = req.body;
 
     const company = await Company.findById(id);
@@ -1121,6 +1179,7 @@ exports.updateCompanyProfile = async (req, res) => {
     if (zipCode !== undefined) company.zipCode = zipCode;
     if (foundedYear !== undefined) company.foundedYear = foundedYear;
     if (companySize !== undefined) company.companySize = companySize;
+    if (currency !== undefined) company.currency = currency;
 
     await company.save();
 
@@ -1131,6 +1190,48 @@ exports.updateCompanyProfile = async (req, res) => {
     res.json(updatedCompany);
   } catch (error) {
     console.error('Error updating company profile:', error);
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Upload company logo
+exports.uploadCompanyLogo = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const company = await Company.findById(id);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Check if user is owner or has manageCompanySettings permission
+    const user = await User.findById(req.user._id);
+    const isOwner = company.owner.toString() === req.user._id.toString();
+    const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
+    const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
+
+    const canManage = user.role === 'superadmin' || isOwner ||
+                     (userDesignation && userDesignation.permissions.manageCompanySettings);
+
+    if (!canManage) {
+      return res.status(403).json({ message: 'You do not have permission to update company logo' });
+    }
+
+    // Update logo path
+    company.logo = `/uploads/company-logos/${req.file.filename}`;
+    await company.save();
+
+    const updatedCompany = await Company.findById(id)
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile');
+
+    res.json(updatedCompany);
+  } catch (error) {
+    console.error('Error uploading company logo:', error);
     res.status(400).json({ message: error.message });
   }
 };

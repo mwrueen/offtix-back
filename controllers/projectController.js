@@ -1067,10 +1067,20 @@ exports.updateProjectSettings = async (req, res) => {
 exports.addHoliday = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, name, description } = req.body;
+    const { date, startDate, endDate, name, description, isRange } = req.body;
 
-    if (!date || !name) {
-      return res.status(400).json({ error: 'Date and name are required' });
+    if (!name) {
+      return res.status(400).json({ error: 'Holiday name is required' });
+    }
+
+    if (isRange) {
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'Start date and end date are required for date range holidays' });
+      }
+    } else {
+      if (!date) {
+        return res.status(400).json({ error: 'Date is required for single-day holidays' });
+      }
     }
 
     const project = await Project.findById(id);
@@ -1094,7 +1104,35 @@ exports.addHoliday = async (req, res) => {
       project.settings.holidays = [];
     }
 
-    project.settings.holidays.push({ date, name, description });
+    // Parse dates to avoid timezone issues
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      if (dateStr.includes('T')) {
+        return new Date(dateStr);
+      } else {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      }
+    };
+
+    let holidayData = {
+      name,
+      description: description || '',
+      isRange: isRange || false
+    };
+
+    if (isRange) {
+      holidayData.startDate = parseDate(startDate);
+      holidayData.endDate = parseDate(endDate);
+
+      if (holidayData.endDate < holidayData.startDate) {
+        return res.status(400).json({ error: 'End date must be after start date' });
+      }
+    } else {
+      holidayData.date = parseDate(date);
+    }
+
+    project.settings.holidays.push(holidayData);
 
     await project.addActivity('holiday_added', `Added holiday: ${name}`, req.user._id, { date, name });
     await project.save();

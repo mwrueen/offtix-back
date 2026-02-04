@@ -43,9 +43,9 @@ exports.getCompanyEmployees = async (req, res) => {
       createdAt: company.owner.createdAt
     });
 
-    // Add members
+    // Add members (excluding owner to avoid duplicates)
     company.members.forEach(member => {
-      if (member.user) {
+      if (member.user && member.user._id.toString() !== company.owner._id.toString()) {
         employees.push({
           _id: member.user._id,
           memberId: member._id,
@@ -66,7 +66,11 @@ exports.getCompanyEmployees = async (req, res) => {
       company: {
         _id: company._id,
         name: company.name,
-        description: company.description
+        description: company.description,
+        currency: company.currency,
+        owner: company.owner,
+        members: company.members,
+        designations: company.designations
       },
       employees,
       designations: company.designations
@@ -144,7 +148,8 @@ exports.getEmployeeDetails = async (req, res) => {
       company: {
         _id: company._id,
         name: company.name,
-        description: company.description
+        description: company.description,
+        currency: company.currency
       },
       employee,
       designations: company.designations
