@@ -9,13 +9,13 @@ const { validationResult } = require('express-validator');
 exports.getTasks = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     // Verify project access
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     const user = await User.findById(req.user._id);
     const isSuperAdmin = user.role === 'superadmin';
 
@@ -43,7 +43,7 @@ exports.getTasks = async (req, res) => {
         hasAccess = company.owner.toString() === req.user._id.toString();
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -52,25 +52,25 @@ exports.getTasks = async (req, res) => {
     }
 
     const tasks = await Task.find({ project: projectId })
-      .populate('assignees', 'name email')
-      .populate('createdBy', 'name')
+      .populate('assignees', 'name email profile')
+      .populate('createdBy', 'name profile')
       .populate('status', 'name color')
       .populate('parent', 'title')
       .populate('sprint', 'name sprintNumber')
       .populate('phase', 'name')
       .populate('roleAssignments.role', 'name color icon order')
-      .populate('roleAssignments.assignees', 'name email avatar')
+      .populate('roleAssignments.assignees', 'name email profile')
       .populate('roleAssignments.handoff.handoffBy', 'name email')
       .sort({ order: 1, createdAt: 1 });
-    
+
     // Build hierarchical structure
     const taskMap = new Map();
     const rootTasks = [];
-    
+
     tasks.forEach(task => {
       taskMap.set(task._id.toString(), { ...task.toObject(), subtasks: [] });
     });
-    
+
     tasks.forEach(task => {
       if (task.parent) {
         const parentTask = taskMap.get(task.parent._id.toString());
@@ -81,7 +81,7 @@ exports.getTasks = async (req, res) => {
         rootTasks.push(taskMap.get(task._id.toString()));
       }
     });
-    
+
     res.json(rootTasks);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -96,21 +96,21 @@ exports.createTask = async (req, res) => {
     }
 
     const { projectId } = req.params;
-    
+
     // Verify project access
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     const user = await User.findById(req.user._id).populate('company');
     const isSuperAdmin = user.role === 'superadmin';
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id)) ||
-                     isSuperAdmin || isCompanyCreator;
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => member.equals(req.user._id)) ||
+      isSuperAdmin || isCompanyCreator;
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -147,15 +147,15 @@ exports.createTask = async (req, res) => {
       project: projectId,
       createdBy: req.user._id
     });
-    
+
     await task.save();
-    await task.populate('assignees', 'name email');
+    await task.populate('assignees', 'name email profile');
     await task.populate('createdBy', 'name');
     await task.populate('status', 'name color');
     await task.populate('parent', 'title');
     await task.populate('sprint', 'name sprintNumber');
     await task.populate('phase', 'name');
-    
+
     res.status(201).json(task);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -165,7 +165,7 @@ exports.createTask = async (req, res) => {
 exports.updateTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
-    
+
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -175,11 +175,11 @@ exports.updateTask = async (req, res) => {
     const user = await User.findById(req.user._id).populate('company');
     const isSuperAdmin = user.role === 'superadmin';
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id)) ||
-                     isSuperAdmin || isCompanyCreator;
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => member.equals(req.user._id)) ||
+      isSuperAdmin || isCompanyCreator;
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -213,7 +213,7 @@ exports.updateTask = async (req, res) => {
 
     Object.assign(task, sanitizedBody);
     await task.save();
-    await task.populate('assignees', 'name email');
+    await task.populate('assignees', 'name email profile');
     await task.populate('createdBy', 'name');
     await task.populate('status', 'name color');
     await task.populate('parent', 'title');
@@ -229,7 +229,7 @@ exports.updateTask = async (req, res) => {
 exports.deleteTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
-    
+
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -239,11 +239,11 @@ exports.deleteTask = async (req, res) => {
     const user = await User.findById(req.user._id).populate('company');
     const isSuperAdmin = user.role === 'superadmin';
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id)) ||
-                     isSuperAdmin || isCompanyCreator;
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => member.equals(req.user._id)) ||
+      isSuperAdmin || isCompanyCreator;
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -271,8 +271,8 @@ exports.reorderTasks = async (req, res) => {
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
 
     const hasAccess = project.owner.equals(req.user._id) ||
-                     project.members.some(member => member.equals(req.user._id)) ||
-                     isSuperAdmin || isCompanyCreator;
+      project.members.some(member => member.equals(req.user._id)) ||
+      isSuperAdmin || isCompanyCreator;
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -287,7 +287,7 @@ exports.reorderTasks = async (req, res) => {
 
     // Return updated tasks
     const tasks = await Task.find({ project: projectId })
-      .populate('assignees', 'name email')
+      .populate('assignees', 'name email profile')
       .populate('createdBy', 'name')
       .populate('status', 'name color')
       .populate('parent', 'title')
@@ -303,14 +303,14 @@ exports.reorderTasks = async (req, res) => {
 
 // Helper function to populate task with all fields including role assignments
 const populateTask = async (task) => {
-  await task.populate('assignees', 'name email avatar');
+  await task.populate('assignees', 'name email profile');
   await task.populate('createdBy', 'name email');
   await task.populate('status', 'name color');
   await task.populate('parent', 'title');
   await task.populate('sprint', 'name sprintNumber');
   await task.populate('phase', 'name');
   await task.populate('roleAssignments.role', 'name color icon order');
-  await task.populate('roleAssignments.assignees', 'name email avatar');
+  await task.populate('roleAssignments.assignees', 'name email profile');
   await task.populate('roleAssignments.handoff.handoffBy', 'name email');
   return task;
 };
@@ -549,7 +549,7 @@ exports.updateRoleAssignments = async (req, res) => {
     // Verify project access
     const project = await Project.findById(task.project);
     const hasAccess = project.owner.equals(req.user._id) ||
-                     project.members.some(member => member.user && member.user.equals(req.user._id));
+      project.members.some(member => member.user && member.user.equals(req.user._id));
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });

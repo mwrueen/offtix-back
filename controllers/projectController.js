@@ -12,7 +12,7 @@ exports.getProjects = async (req, res) => {
 
     const user = await User.findById(req.user._id).populate('company');
     const companyId = req.headers['x-company-id'] || req.query.companyId;
-    
+
     let query = {};
 
     if (companyId && companyId !== 'personal') {
@@ -24,8 +24,8 @@ exports.getProjects = async (req, res) => {
       }
 
       const hasCompanyAccess = company.owner.toString() === req.user._id.toString() ||
-                              company.members.some(member => member.user.toString() === req.user._id.toString());
-      
+        company.members.some(member => member.user.toString() === req.user._id.toString());
+
       if (!hasCompanyAccess) {
         return res.status(403).json({ error: 'Access denied to this company' });
       }
@@ -53,11 +53,11 @@ exports.getProjects = async (req, res) => {
     }
 
     const projects = await Project.find(query)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email')
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile')
       .populate('company', 'name')
       .sort({ createdAt: -1 });
-    
+
     res.json(projects);
   } catch (error) {
     console.error('Error in getProjects:', error);
@@ -75,7 +75,7 @@ exports.createProject = async (req, res) => {
 
     const user = await User.findById(req.user._id).populate('company');
     const companyId = req.headers['x-company-id'] || req.query.companyId;
-    
+
     let assignedCompany = null;
 
     // Determine which company to assign the project to
@@ -89,7 +89,7 @@ exports.createProject = async (req, res) => {
       const isOwner = company.owner.toString() === req.user._id.toString();
       const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
       const isSuperAdmin = user.role === 'superadmin';
-      
+
       // Check permissions to create projects in this company
       if (!isSuperAdmin && !isOwner && (!userMember || !userMember.canCreateProjects)) {
         return res.status(403).json({ error: 'You do not have permission to create projects in this company' });
@@ -106,13 +106,13 @@ exports.createProject = async (req, res) => {
       owner: req.user._id,
       company: assignedCompany
     });
-    
+
     await project.save();
-    await project.populate('owner', 'name email');
+    await project.populate('owner', 'name email profile');
     if (assignedCompany) {
       await project.populate('company', 'name');
     }
-    
+
     res.status(201).json(project);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -122,10 +122,10 @@ exports.createProject = async (req, res) => {
 exports.getProjectById = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email')
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile')
       .populate('company', 'name');
-    
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -156,7 +156,7 @@ exports.getProjectById = async (req, res) => {
         hasAccess = company.owner.toString() === req.user._id.toString();
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({
         error: 'Access denied',
@@ -173,7 +173,7 @@ exports.getProjectById = async (req, res) => {
 exports.updateProject = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id).populate('company', 'name');
-    
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -181,10 +181,10 @@ exports.updateProject = async (req, res) => {
     const user = await User.findById(req.user._id);
     const companyId = req.headers['x-company-id'] || req.query.companyId;
     const isSuperAdmin = user.role === 'superadmin';
-    
+
     // Check access - project owner always has access
     let hasAccess = false;
-    
+
     // 1. Superadmin always has access
     if (isSuperAdmin) {
       hasAccess = true;
@@ -203,20 +203,20 @@ exports.updateProject = async (req, res) => {
       if (company) {
         const isCompanyOwner = company.owner.toString() === req.user._id.toString();
         const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-        
+
         hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     Object.assign(project, req.body);
     await project.save();
-    await project.populate('owner', 'name email');
-    await project.populate('members.user', 'name email');
-    
+    await project.populate('owner', 'name email profile');
+    await project.populate('members.user', 'name email profile');
+
     res.json(project);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -227,23 +227,23 @@ exports.updateProject = async (req, res) => {
 exports.addTeamMember = async (req, res) => {
   try {
     const { userId, role } = req.body;
-    
+
     if (!userId || !role) {
       return res.status(400).json({ error: 'User ID and role are required' });
     }
 
     const project = await Project.findById(req.params.id);
-    
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
     const user = await User.findById(req.user._id);
     const isSuperAdmin = user.role === 'superadmin';
-    
+
     // Check if user can add team members (project owner, superadmin, or company permissions)
     let hasAccess = isSuperAdmin || project.owner.equals(req.user._id);
-    
+
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);
       if (company) {
@@ -252,16 +252,16 @@ exports.addTeamMember = async (req, res) => {
         hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     // Check if user is already a member
-    const isAlreadyMember = project.members.some(member => 
+    const isAlreadyMember = project.members.some(member =>
       member.user.toString() === userId
     );
-    
+
     if (isAlreadyMember) {
       return res.status(400).json({ error: 'User is already a team member' });
     }
@@ -269,11 +269,11 @@ exports.addTeamMember = async (req, res) => {
     // Add the new member
     project.members.push({ user: userId, role: role.trim() });
     await project.save();
-    
+
     // Populate and return updated project
-    await project.populate('owner', 'name email');
-    await project.populate('members.user', 'name email');
-    
+    await project.populate('owner', 'name email profile');
+    await project.populate('members.user', 'name email profile');
+
     res.json(project);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -284,19 +284,19 @@ exports.addTeamMember = async (req, res) => {
 exports.removeTeamMember = async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     const project = await Project.findById(req.params.id);
-    
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
     const user = await User.findById(req.user._id);
     const isSuperAdmin = user.role === 'superadmin';
-    
+
     // Check if user can remove team members
     let hasAccess = isSuperAdmin || project.owner.equals(req.user._id);
-    
+
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);
       if (company) {
@@ -305,22 +305,22 @@ exports.removeTeamMember = async (req, res) => {
         hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     // Remove the member
-    project.members = project.members.filter(member => 
+    project.members = project.members.filter(member =>
       member.user.toString() !== userId
     );
-    
+
     await project.save();
-    
+
     // Populate and return updated project
-    await project.populate('owner', 'name email');
-    await project.populate('members.user', 'name email');
-    
+    await project.populate('owner', 'name email profile');
+    await project.populate('members.user', 'name email profile');
+
     res.json(project);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -330,7 +330,7 @@ exports.removeTeamMember = async (req, res) => {
 exports.deleteProject = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id).populate('company', 'name');
-    
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -338,19 +338,19 @@ exports.deleteProject = async (req, res) => {
     const user = await User.findById(req.user._id);
     const companyId = req.headers['x-company-id'] || req.query.companyId;
     const isSuperAdmin = user.role === 'superadmin';
-    
+
     // Check access based on company context
     let hasAccess = false;
-    
+
     if (companyId && companyId !== 'personal') {
       // Company mode - verify project belongs to selected company and user has permissions
       if (project.company && project.company._id.toString() === companyId) {
         const company = await Company.findById(companyId);
         const isOwner = company.owner.toString() === req.user._id.toString();
         const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-        
-        hasAccess = isSuperAdmin || isOwner || 
-                   (userMember && (userMember.canDeleteProjects || project.owner.equals(req.user._id)));
+
+        hasAccess = isSuperAdmin || isOwner ||
+          (userMember && (userMember.canDeleteProjects || project.owner.equals(req.user._id)));
       }
     } else {
       // Personal mode - check if project is personal and user owns it
@@ -358,7 +358,7 @@ exports.deleteProject = async (req, res) => {
         hasAccess = project.owner.equals(req.user._id) || isSuperAdmin;
       }
     }
-    
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -374,8 +374,8 @@ exports.deleteProject = async (req, res) => {
 exports.getProjectAnalytics = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email')
+      .populate('owner', 'name email profile')
+      .populate('members.user', 'name email profile')
       .populate('milestones')
       .populate('risks');
 
@@ -1283,8 +1283,8 @@ exports.getProjectCosts = async (req, res) => {
 
     // Check access
     const hasAccess = project.owner._id.toString() === req.user._id.toString() ||
-                      project.members.some(m => m.user._id.toString() === req.user._id.toString()) ||
-                      req.user.role === 'superadmin';
+      project.members.some(m => m.user._id.toString() === req.user._id.toString()) ||
+      req.user.role === 'superadmin';
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
