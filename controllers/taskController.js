@@ -31,7 +31,10 @@ exports.getTasks = async (req, res) => {
       hasAccess = true;
     }
     // Check if user is a project member
-    else if (project.members.some(member => member.user && member.user.equals(req.user._id))) {
+    else if (project.members.some(member => {
+      const memberId = member.user?._id || member.user;
+      return memberId && memberId.toString() === req.user._id.toString();
+    })) {
       hasAccess = true;
     }
     // Check if project belongs to a company and user is the company owner (not just a member)
@@ -108,7 +111,7 @@ exports.createTask = async (req, res) => {
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
 
     const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => member.equals(req.user._id)) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
       isSuperAdmin || isCompanyCreator;
 
     if (!hasAccess) {
@@ -177,7 +180,7 @@ exports.updateTask = async (req, res) => {
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
 
     const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => member.equals(req.user._id)) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
       isSuperAdmin || isCompanyCreator;
 
     if (!hasAccess) {
@@ -241,7 +244,7 @@ exports.deleteTask = async (req, res) => {
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
 
     const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => member.equals(req.user._id)) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
       isSuperAdmin || isCompanyCreator;
 
     if (!hasAccess) {
@@ -271,7 +274,7 @@ exports.reorderTasks = async (req, res) => {
     const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
 
     const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => member.equals(req.user._id)) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
       isSuperAdmin || isCompanyCreator;
 
     if (!hasAccess) {
@@ -549,7 +552,7 @@ exports.updateRoleAssignments = async (req, res) => {
     // Verify project access
     const project = await Project.findById(task.project);
     const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => member.user && member.user.equals(req.user._id));
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });

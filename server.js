@@ -29,6 +29,7 @@ const leaveRoutes = require('./routes/leaves');
 const chatRoutes = require('./routes/chat');
 const taskRoleRoutes = require('./routes/taskRoles');
 const adminRoutes = require('./routes/admin');
+const myTasksRoutes = require('./routes/myTasks');
 
 const app = express();
 const server = http.createServer(app);
@@ -98,6 +99,7 @@ app.use('/api/companies/:companyId/leaves', leaveRoutes);
 app.use('/api/projects/:projectId/chat', chatRoutes);
 app.use('/api/task-roles', taskRoleRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/my-tasks', myTasksRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });

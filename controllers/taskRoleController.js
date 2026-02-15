@@ -5,18 +5,25 @@ const Project = require('../models/Project');
 exports.getProjectRoles = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     // Verify project access
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const roles = await TaskRole.find({ project: projectId, isActive: true })
       .populate('defaultAssignees', 'name email avatar')
       .populate('createdBy', 'name email')
       .sort({ order: 1 });
-    
+
     res.json(roles);
   } catch (error) {
     console.error('Error fetching task roles:', error);
@@ -29,23 +36,23 @@ exports.createRole = async (req, res) => {
   try {
     const { projectId } = req.params;
     const { name, description, color, icon, defaultAssignees, estimatedDuration } = req.body;
-    
+
     // Verify project access
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     // Check if user is project owner or has permission
     const isOwner = project.owner.toString() === req.user._id.toString();
     if (!isOwner) {
       return res.status(403).json({ error: 'Only project owner can create workflow roles' });
     }
-    
+
     // Get the next order number
     const lastRole = await TaskRole.findOne({ project: projectId }).sort({ order: -1 });
     const order = lastRole ? lastRole.order + 1 : 1;
-    
+
     const role = new TaskRole({
       name,
       description,
@@ -57,11 +64,11 @@ exports.createRole = async (req, res) => {
       project: projectId,
       createdBy: req.user._id
     });
-    
+
     await role.save();
     await role.populate('defaultAssignees', 'name email avatar');
     await role.populate('createdBy', 'name email');
-    
+
     res.status(201).json(role);
   } catch (error) {
     console.error('Error creating task role:', error);
@@ -74,24 +81,24 @@ exports.updateRole = async (req, res) => {
   try {
     const { projectId, roleId } = req.params;
     const updates = req.body;
-    
+
     const role = await TaskRole.findOne({ _id: roleId, project: projectId });
     if (!role) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    
+
     // Verify project ownership
     const project = await Project.findById(projectId);
     const isOwner = project.owner.toString() === req.user._id.toString();
     if (!isOwner) {
       return res.status(403).json({ error: 'Only project owner can update workflow roles' });
     }
-    
+
     Object.assign(role, updates);
     await role.save();
     await role.populate('defaultAssignees', 'name email avatar');
     await role.populate('createdBy', 'name email');
-    
+
     res.json(role);
   } catch (error) {
     console.error('Error updating task role:', error);
@@ -103,23 +110,23 @@ exports.updateRole = async (req, res) => {
 exports.deleteRole = async (req, res) => {
   try {
     const { projectId, roleId } = req.params;
-    
+
     const role = await TaskRole.findOne({ _id: roleId, project: projectId });
     if (!role) {
       return res.status(404).json({ error: 'Role not found' });
     }
-    
+
     // Verify project ownership
     const project = await Project.findById(projectId);
     const isOwner = project.owner.toString() === req.user._id.toString();
     if (!isOwner) {
       return res.status(403).json({ error: 'Only project owner can delete workflow roles' });
     }
-    
+
     // Soft delete by setting isActive to false
     role.isActive = false;
     await role.save();
-    
+
     res.json({ message: 'Role deleted successfully' });
   } catch (error) {
     console.error('Error deleting task role:', error);

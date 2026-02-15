@@ -4,21 +4,21 @@ const Project = require('../models/Project');
 exports.getSprints = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     let sprints = await Sprint.find({ project: projectId }).sort({ sprintNumber: 1 });
-    
+
     // Create default sprints if none exist
     if (sprints.length === 0) {
       const now = new Date();
@@ -38,10 +38,10 @@ exports.getSprints = async (req, res) => {
           project: projectId
         }
       ];
-      
+
       sprints = await Sprint.insertMany(defaultSprints);
     }
-    
+
     res.json(sprints);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -51,15 +51,15 @@ exports.getSprints = async (req, res) => {
 exports.createSprint = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -68,7 +68,7 @@ exports.createSprint = async (req, res) => {
       ...req.body,
       project: projectId
     });
-    
+
     await sprint.save();
     res.status(201).json(sprint);
   } catch (error) {

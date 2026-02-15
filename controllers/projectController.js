@@ -145,7 +145,10 @@ exports.getProjectById = async (req, res) => {
       hasAccess = true;
     }
     // Check if user is a project member
-    else if (project.members.some(member => member.user._id.equals(req.user._id))) {
+    else if (project.members.some(member => {
+      const memberId = member.user?._id || member.user;
+      return memberId && memberId.toString() === req.user._id.toString();
+    })) {
       hasAccess = true;
     }
     // Check if project belongs to a company and user is the company owner (not just a member)
@@ -244,6 +247,14 @@ exports.addTeamMember = async (req, res) => {
     // Check if user can add team members (project owner, superadmin, or company permissions)
     let hasAccess = isSuperAdmin || project.owner.equals(req.user._id);
 
+    // Check if user is a Project Manager
+    if (!hasAccess) {
+      const member = project.members.find(m => m.user.toString() === req.user._id.toString());
+      if (member && member.role === 'Project Manager') {
+        hasAccess = true;
+      }
+    }
+
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);
       if (company) {
@@ -296,6 +307,14 @@ exports.removeTeamMember = async (req, res) => {
 
     // Check if user can remove team members
     let hasAccess = isSuperAdmin || project.owner.equals(req.user._id);
+
+    // Check if user is a Project Manager
+    if (!hasAccess) {
+      const member = project.members.find(m => m.user.toString() === req.user._id.toString());
+      if (member && member.role === 'Project Manager') {
+        hasAccess = true;
+      }
+    }
 
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);

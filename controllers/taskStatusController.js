@@ -4,22 +4,22 @@ const Project = require('../models/Project');
 exports.getTaskStatuses = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     // Verify project access
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
-    
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     let statuses = await TaskStatus.find({ project: projectId }).sort({ order: 1 });
-    
+
     // Create default statuses if none exist
     if (statuses.length === 0) {
       const defaultStatuses = [
@@ -28,10 +28,10 @@ exports.getTaskStatuses = async (req, res) => {
         { name: 'Review', color: '#8b5cf6', order: 2, project: projectId },
         { name: 'Completed', color: '#10b981', order: 3, project: projectId }
       ];
-      
+
       statuses = await TaskStatus.insertMany(defaultStatuses);
     }
-    
+
     res.json(statuses);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -41,13 +41,13 @@ exports.getTaskStatuses = async (req, res) => {
 exports.createTaskStatus = async (req, res) => {
   try {
     const { projectId } = req.params;
-    
+
     // Verify project access - only project owner can manage statuses
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     if (!project.owner.equals(req.user._id)) {
       return res.status(403).json({ error: 'Only project owner can manage task statuses' });
     }
@@ -61,7 +61,7 @@ exports.createTaskStatus = async (req, res) => {
       project: projectId,
       order
     });
-    
+
     await status.save();
     res.status(201).json(status);
   } catch (error) {
@@ -72,13 +72,13 @@ exports.createTaskStatus = async (req, res) => {
 exports.updateTaskStatus = async (req, res) => {
   try {
     const { projectId, statusId } = req.params;
-    
+
     // Verify project access - only project owner can manage statuses
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     if (!project.owner.equals(req.user._id)) {
       return res.status(403).json({ error: 'Only project owner can manage task statuses' });
     }
@@ -102,13 +102,13 @@ exports.updateTaskStatus = async (req, res) => {
 exports.deleteTaskStatus = async (req, res) => {
   try {
     const { projectId, statusId } = req.params;
-    
+
     // Verify project access - only project owner can manage statuses
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     if (!project.owner.equals(req.user._id)) {
       return res.status(403).json({ error: 'Only project owner can manage task statuses' });
     }
@@ -116,16 +116,16 @@ exports.deleteTaskStatus = async (req, res) => {
     // Check if any tasks are using this status
     const Task = require('../models/Task');
     const tasksUsingStatus = await Task.countDocuments({ status: statusId });
-    
+
     if (tasksUsingStatus > 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Cannot delete status that is being used by tasks',
         tasksCount: tasksUsingStatus
       });
     }
 
     const status = await TaskStatus.findOneAndDelete({ _id: statusId, project: projectId });
-    
+
     if (!status) {
       return res.status(404).json({ error: 'Task status not found' });
     }

@@ -47,7 +47,7 @@ const roleAssignmentSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['pending', 'active', 'completed', 'skipped'],
+    enum: ['pending', 'active', 'in_progress', 'completed', 'skipped', 'needs_changes', 'blocked'],
     default: 'pending'
   },
   startedAt: {
