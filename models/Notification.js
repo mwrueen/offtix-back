@@ -16,7 +16,9 @@ const notificationSchema = new mongoose.Schema({
       'general',
       'task_role_assignment',  // Notified when assigned to a role in a task
       'task_role_handoff',     // Notified when previous role hands off to you
-      'task_role_completed'    // Notified when your role is marked complete
+      'task_role_completed',   // Notified when your role is marked complete
+      'task_ready',
+      'task_send_back'
     ],
     required: true
   },

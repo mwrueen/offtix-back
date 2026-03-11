@@ -111,7 +111,7 @@ exports.getCompany = async (req, res) => {
     const company = await Company.findById(req.params.id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email');
-    
+
     if (!company) {
       return res.status(404).json({ message: 'Company not found' });
     }
@@ -125,12 +125,12 @@ exports.getCompany = async (req, res) => {
 exports.addMember = async (req, res) => {
   try {
     const { email, designation, salary } = req.body;
-    
+
     const userToAdd = await User.findOne({ email });
     if (!userToAdd) {
       return res.status(404).json({ message: 'User not found with this email' });
     }
-    
+
     const userId = userToAdd._id;
     const company = await Company.findById(req.params.id);
 
@@ -141,11 +141,11 @@ exports.addMember = async (req, res) => {
     const user = await User.findById(req.user._id);
     const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
-    
-    const canAddMembers = user.role === 'superadmin' || 
-                         company.owner.toString() === req.user._id.toString() ||
-                         (userDesignation && userDesignation.permissions.addEmployee);
-    
+
+    const canAddMembers = user.role === 'superadmin' ||
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.addEmployee);
+
     if (!canAddMembers) {
       return res.status(403).json({ message: 'You do not have permission to add employees' });
     }
@@ -191,11 +191,11 @@ exports.updateMemberSalary = async (req, res) => {
     const user = await User.findById(req.user._id);
     const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
-    
-    const canManageSalaries = user.role === 'superadmin' || 
-                             company.owner.toString() === req.user._id.toString() ||
-                             (userDesignation && userDesignation.permissions.editEmployee);
-    
+
+    const canManageSalaries = user.role === 'superadmin' ||
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.editEmployee);
+
     if (!canManageSalaries) {
       return res.status(403).json({ message: 'You do not have permission to manage salaries' });
     }
@@ -214,7 +214,7 @@ exports.updateMemberSalary = async (req, res) => {
 
     member.currentSalary = newSalary;
     await company.save();
-    
+
     const populatedCompany = await Company.findById(company._id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email');
@@ -237,11 +237,11 @@ exports.updateMemberDesignation = async (req, res) => {
     const user = await User.findById(req.user._id);
     const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
-    
-    const canManageEmployees = user.role === 'superadmin' || 
-                              company.owner.toString() === req.user._id.toString() ||
-                              (userDesignation && userDesignation.permissions.editEmployee);
-    
+
+    const canManageEmployees = user.role === 'superadmin' ||
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.editEmployee);
+
     if (!canManageEmployees) {
       return res.status(403).json({ message: 'You do not have permission to manage employees' });
     }
@@ -253,7 +253,7 @@ exports.updateMemberDesignation = async (req, res) => {
 
     member.designation = designation;
     await company.save();
-    
+
     const populatedCompany = await Company.findById(company._id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email');
@@ -276,22 +276,22 @@ exports.addDesignation = async (req, res) => {
     const user = await User.findById(req.user._id);
     const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
-    
-    const canCreateDesignation = user.role === 'superadmin' || 
-                                company.owner.toString() === req.user._id.toString() ||
-                                (userDesignation && userDesignation.permissions.createDesignation);
-    
+
+    const canCreateDesignation = user.role === 'superadmin' ||
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.createDesignation);
+
     if (!canCreateDesignation) {
       return res.status(403).json({ message: 'You do not have permission to create designations' });
     }
 
     company.designations.push({ name, description, permissions });
     await company.save();
-    
+
     const populatedCompany = await Company.findById(company._id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email');
-    
+
     res.json(populatedCompany);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -312,8 +312,8 @@ exports.updateDesignationPermissions = async (req, res) => {
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
 
     const canEditDesignation = user.role === 'superadmin' ||
-                              company.owner.toString() === req.user._id.toString() ||
-                              (userDesignation && userDesignation.permissions.editDesignation);
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.editDesignation);
 
     if (!canEditDesignation) {
       return res.status(403).json({ message: 'You do not have permission to edit designations' });
@@ -351,8 +351,8 @@ exports.deleteDesignation = async (req, res) => {
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
 
     const canDeleteDesignation = user.role === 'superadmin' ||
-                                company.owner.toString() === req.user._id.toString() ||
-                                (userDesignation && userDesignation.permissions.deleteDesignation);
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.deleteDesignation);
 
     if (!canDeleteDesignation) {
       return res.status(403).json({ message: 'You do not have permission to delete designations' });
@@ -387,9 +387,9 @@ exports.deleteDesignation = async (req, res) => {
 exports.getUserCompany = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).populate('company');
-    
+
     let company = null;
-    
+
     if (user.company) {
       company = await Company.findById(user.company._id)
         .populate('owner', 'name email')
@@ -398,7 +398,7 @@ exports.getUserCompany = async (req, res) => {
       company = await Company.findOne({ owner: req.user._id })
         .populate('owner', 'name email')
         .populate('members.user', 'name email');
-      
+
       if (company) {
         await User.findByIdAndUpdate(req.user._id, { company: company._id });
       }
@@ -425,9 +425,9 @@ exports.getUserCompanies = async (req, res) => {
         { 'members.user': userId }
       ]
     })
-    .populate('owner', 'name email')
-    .select('_id name description owner members designations')
-    .lean();
+      .populate('owner', 'name email')
+      .select('_id name description owner members designations currency')
+      .lean();
 
     // Add user role and permissions in each company
     const companiesWithRole = companies.map(company => {
@@ -446,7 +446,7 @@ exports.getUserCompanies = async (req, res) => {
           ownerId = company.owner.toString();
         }
       }
-      
+
       if (ownerId && ownerId === userId.toString()) {
         userRole = 'owner';
         userDesignation = 'Owner';
@@ -498,6 +498,7 @@ exports.getUserCompanies = async (req, res) => {
         id: company._id,
         name: company.name,
         description: company.description,
+        currency: company.currency,
         userRole,
         userDesignation,
         userPermissions,
@@ -832,8 +833,8 @@ exports.getWorkforce = async (req, res) => {
           durationHours: taskHours,
           cost: Math.round(taskCost * 100) / 100,
           isOverdue: task.dueDate && new Date(task.dueDate) < now &&
-                     task.status?.name?.toLowerCase() !== 'done' &&
-                     task.status?.name?.toLowerCase() !== 'completed'
+            task.status?.name?.toLowerCase() !== 'done' &&
+            task.status?.name?.toLowerCase() !== 'completed'
         };
 
         totalTaskCost += taskCost;
@@ -932,8 +933,8 @@ exports.updateReportingManager = async (req, res) => {
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
 
     const canEditEmployee = user.role === 'superadmin' ||
-                           company.owner.toString() === req.user._id.toString() ||
-                           (userDesignation && userDesignation.permissions.editEmployee);
+      company.owner.toString() === req.user._id.toString() ||
+      (userDesignation && userDesignation.permissions.editEmployee);
 
     if (!canEditEmployee) {
       return res.status(403).json({ message: 'You do not have permission to update reporting structure' });
@@ -984,7 +985,7 @@ exports.getOrganogram = async (req, res) => {
 
     // Check if user has access
     const hasAccess = company.owner._id.toString() === req.user._id.toString() ||
-                     company.members.some(m => m.user._id.toString() === req.user._id.toString());
+      company.members.some(m => m.user._id.toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ message: 'Access denied' });
@@ -1159,7 +1160,7 @@ exports.updateCompanyProfile = async (req, res) => {
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
 
     const canManage = user.role === 'superadmin' || isOwner ||
-                     (userDesignation && userDesignation.permissions.manageCompanySettings);
+      (userDesignation && userDesignation.permissions.manageCompanySettings);
 
     if (!canManage) {
       return res.status(403).json({ message: 'You do not have permission to update company profile' });
@@ -1215,7 +1216,7 @@ exports.uploadCompanyLogo = async (req, res) => {
     const userDesignation = userMember ? company.designations.find(d => d.name === userMember.designation) : null;
 
     const canManage = user.role === 'superadmin' || isOwner ||
-                     (userDesignation && userDesignation.permissions.manageCompanySettings);
+      (userDesignation && userDesignation.permissions.manageCompanySettings);
 
     if (!canManage) {
       return res.status(403).json({ message: 'You do not have permission to update company logo' });

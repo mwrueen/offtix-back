@@ -64,6 +64,7 @@ exports.getTasks = async (req, res) => {
       .populate('roleAssignments.role', 'name color icon order')
       .populate('roleAssignments.assignees', 'name email profile')
       .populate('roleAssignments.handoff.handoffBy', 'name email')
+      .populate('sequentialAssignees.user', 'name email profile')
       .sort({ order: 1, createdAt: 1 });
 
     // Build hierarchical structure

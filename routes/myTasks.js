@@ -44,5 +44,11 @@ router.post('/:taskId/send-back', [
     .trim()
 ], myTasksController.sendBackForFix);
 
+// Sequential workflow routes
+router.post('/:taskId/sequential/start', myTasksController.startSequentialTask);
+router.post('/:taskId/sequential/pause', myTasksController.pauseSequentialTask);
+router.post('/:taskId/sequential/complete', uploadTaskDocuments.array('files', 10), myTasksController.completeSequentialTask);
+router.post('/:taskId/sequential/send-back', uploadTaskDocuments.array('files', 10), myTasksController.sendBackSequentialTask);
+
 module.exports = router;
 

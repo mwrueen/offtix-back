@@ -99,6 +99,42 @@ const taskSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+  // Sequential assignee workflow (simpler than role-based)
+  sequentialAssignees: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    order: {
+      type: Number,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'active', 'in_progress', 'paused', 'completed'],
+      default: 'pending'
+    },
+    startedAt: {
+      type: Date
+    },
+    pausedAt: {
+      type: Date
+    },
+    completedAt: {
+      type: Date
+    }
+  }],
+  // Current active assignee index for sequential workflow
+  currentAssigneeIndex: {
+    type: Number,
+    default: -1 // -1 means workflow not started
+  },
+  // Whether this task uses sequential assignee workflow
+  useSequentialWorkflow: {
+    type: Boolean,
+    default: false
+  },
   // Sequential role assignments for workflow
   roleAssignments: [roleAssignmentSchema],
   // Current active role assignment index

@@ -12,7 +12,7 @@ const taskActivitySchema = new mongoose.Schema({
   },
   action: {
     type: String,
-    enum: ['started', 'completed', 'duration_updated', 'send_back', 'status_changed'],
+    enum: ['started', 'completed', 'duration_updated', 'send_back', 'status_changed', 'paused'],
     required: true
   },
   performedBy: {
