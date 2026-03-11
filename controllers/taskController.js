@@ -320,20 +320,23 @@ const populateTask = async (task) => {
 };
 
 // Helper function to send role notifications
-const sendRoleNotification = async (type, userId, task, role, handoffData = null, fromUser = null) => {
+const sendRoleNotification = async (type, userId, task, role, handoffData = null, fromUser = null, io = null) => {
+  const title = type === 'task_role_assignment'
+    ? `Assigned to role: ${role.name}`
+    : type === 'task_role_handoff'
+      ? `Role handoff: ${role.name}`
+      : `Role completed: ${role.name}`;
+  const message = type === 'task_role_assignment'
+    ? `You have been assigned to the "${role.name}" role for task "${task.title}"`
+    : type === 'task_role_handoff'
+      ? `The "${role.name}" role is now ready for you on task "${task.title}"`
+      : `Your role "${role.name}" has been completed on task "${task.title}"`;
+
   const notification = new Notification({
     user: userId,
     type,
-    title: type === 'task_role_assignment'
-      ? `Assigned to role: ${role.name}`
-      : type === 'task_role_handoff'
-        ? `Role handoff: ${role.name}`
-        : `Role completed: ${role.name}`,
-    message: type === 'task_role_assignment'
-      ? `You have been assigned to the "${role.name}" role for task "${task.title}"`
-      : type === 'task_role_handoff'
-        ? `The "${role.name}" role is now ready for you on task "${task.title}"`
-        : `Your role "${role.name}" has been completed on task "${task.title}"`,
+    title,
+    message,
     relatedId: task._id,
     relatedModel: 'Task',
     metadata: {
@@ -347,6 +350,18 @@ const sendRoleNotification = async (type, userId, task, role, handoffData = null
     }
   });
   await notification.save();
+
+  // 🔔 Real-time socket event
+  if (io) {
+    const socketEvent = type === 'task_role_assignment' ? 'task:assigned'
+      : type === 'task_role_handoff' ? 'task:role_handoff' : 'task:role_handoff';
+    io.to(`user:${userId}`).emit(socketEvent, {
+      type,
+      title,
+      message,
+      taskId: task._id
+    });
+  }
 };
 
 // Start task workflow - activates first role
@@ -376,9 +391,10 @@ exports.startTaskWorkflow = async (req, res) => {
     await populateTask(task);
 
     // Notify assignees of first role
+    const io = req.app.get('io');
     const firstRole = task.roleAssignments[0];
     for (const assignee of firstRole.assignees) {
-      await sendRoleNotification('task_role_assignment', assignee._id, task, firstRole.role);
+      await sendRoleNotification('task_role_assignment', assignee._id, task, firstRole.role, null, null, io);
     }
 
     res.json(task);
@@ -458,6 +474,7 @@ exports.completeRoleAndHandoff = async (req, res) => {
 
     // Notify next role assignees
     if (nextRoleIndex < task.roleAssignments.length) {
+      const io = req.app.get('io');
       const nextRole = task.roleAssignments[nextRoleIndex];
       for (const assignee of nextRole.assignees) {
         await sendRoleNotification(
@@ -466,7 +483,8 @@ exports.completeRoleAndHandoff = async (req, res) => {
           task,
           nextRole.role,
           currentRole.handoff,
-          req.user._id
+          req.user._id,
+          io
         );
       }
     }

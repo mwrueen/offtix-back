@@ -664,6 +664,7 @@ exports.completeTask = async (req, res) => {
     // Notify next step assignees if exists
     if (nextStepIndex < task.roleAssignments.length) {
       const nextStep = task.roleAssignments[nextStepIndex];
+      const io = req.app.get('io');
       for (const assignee of nextStep.assignees) {
         const notification = new Notification({
           user: assignee._id,
@@ -679,6 +680,16 @@ exports.completeTask = async (req, res) => {
           }
         });
         await notification.save();
+
+        // 🔔 Real-time event
+        if (io) {
+          io.to(`user:${assignee._id}`).emit('task:role_handoff', {
+            type: 'task_role_handoff',
+            title: `Task ready: ${task.title}`,
+            message: `The previous step has been completed. "${task.title}" is now ready for your role.`,
+            taskId: task._id
+          });
+        }
       }
     }
 
@@ -765,7 +776,8 @@ exports.sendBackForFix = async (req, res) => {
       sentBackTo: previousAssignee?._id || previousStep.assignees[0]
     });
 
-    // 4. Create notifications for previous step assignees
+    // 4. Create notifications for previous step assignees + real-time events
+    const io = req.app.get('io');
     for (const assignee of previousStep.assignees) {
       const notification = new Notification({
         user: assignee._id,
@@ -782,6 +794,16 @@ exports.sendBackForFix = async (req, res) => {
         }
       });
       await notification.save();
+
+      // 🔔 Real-time event
+      if (io) {
+        io.to(`user:${assignee._id}`).emit('task:sent_back', {
+          type: 'task_send_back',
+          title: `Task needs changes: ${task.title}`,
+          message: professionalMessage,
+          taskId: task._id
+        });
+      }
     }
 
     await task.save();
@@ -1018,7 +1040,7 @@ exports.completeSequentialTask = async (req, res) => {
       nextAssignee.status = 'active';
       nextAssignee.startedAt = new Date();
 
-      // Notify next assignee
+      // Notify next assignee via DB + socket
       const notification = new Notification({
         user: nextAssignee.user._id,
         type: 'task_ready',
@@ -1032,6 +1054,18 @@ exports.completeSequentialTask = async (req, res) => {
         }
       });
       await notification.save();
+
+      // 🔔 Real-time socket event
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`user:${nextAssignee.user._id}`).emit('task:ready', {
+          type: 'task_ready',
+          title: `Task ready: ${task.title}`,
+          message: `The previous assignee has completed their work. "${task.title}" is now ready for you.`,
+          taskId: task._id,
+          projectId: task.project._id
+        });
+      }
     } else {
       // All assignees completed - mark task as done
       allCompleted = true;
@@ -1160,6 +1194,18 @@ exports.sendBackSequentialTask = async (req, res) => {
     });
 
     await notification.save();
+
+    // 🔔 Real-time socket event — notify previous assignee
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${previousAssignee.user._id}`).emit('task:sent_back', {
+        type: 'task_send_back',
+        title: `Task sent back: ${task.title}`,
+        message: professionalMessage,
+        taskId: task._id
+      });
+    }
+
     await task.save();
 
     // Create activity entry
