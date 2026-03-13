@@ -18,5 +18,11 @@ router.delete('/messages/:messageId', chatController.deleteMessage);
 // Edit a message
 router.put('/messages/:messageId', chatController.editMessage);
 
+// Unread counts
+router.get('/unread-counts', chatController.getUnreadCounts);
+
+// Mark messages as read
+router.post('/mark-read', chatController.markMessagesAsRead);
+
 module.exports = router;
 

@@ -97,6 +97,7 @@ app.use('/api/companies/:companyId/employees', employeeRoutes);
 app.use('/api/companies/:companyId/holidays', holidayRoutes);
 app.use('/api/companies/:companyId/leaves', leaveRoutes);
 app.use('/api/projects/:projectId/chat', chatRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/task-roles', taskRoleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/my-tasks', myTasksRoutes);
@@ -131,115 +132,111 @@ const Project = require('./models/Project');
 io.on('connection', async (socket) => {
   console.log(`User connected: ${socket.userId}`);
 
-  // Join user to their own room for private notifications
+  // Join user to their own room for private notifications and DMs
   socket.join(`user:${socket.userId}`);
 
-  // Join a project chat room
-  socket.on('join-project', async (projectId) => {
+  // Join a room (project, company)
+  socket.on('join-room', async (data) => {
     try {
-      // Verify user has access to this project
-      const project = await Project.findOne({
-        _id: projectId,
-        $or: [
-          { owner: socket.userId },
-          { 'members.user': socket.userId }
-        ]
-      });
+      const { type, id } = data; // type: 'project' or 'company'
 
-      if (!project) {
-        socket.emit('error', { message: 'Access denied to this project' });
-        return;
+      if (type === 'project') {
+        const project = await Project.findOne({
+          _id: id,
+          $or: [{ owner: socket.userId }, { 'members.user': socket.userId }]
+        });
+        if (!project) return socket.emit('error', { message: 'Access denied' });
+        socket.join(`project:${id}`);
+      } else if (type === 'company') {
+        const user = await User.findById(socket.userId);
+        if (!user || user.company.toString() !== id) return socket.emit('error', { message: 'Access denied' });
+        socket.join(`company:${id}`);
       }
 
-      socket.join(`project:${projectId}`);
-      console.log(`User ${socket.userId} joined project:${projectId}`);
-
-      // Notify others in the room
-      const user = await User.findById(socket.userId).select('name profile.profilePicture');
-      socket.to(`project:${projectId}`).emit('user-joined', {
-        userId: socket.userId,
-        userName: user?.name,
-        avatar: user?.profile?.profilePicture
-      });
+      console.log(`User ${socket.userId} joined ${type}:${id}`);
     } catch (error) {
-      console.error('Error joining project:', error);
-      socket.emit('error', { message: 'Failed to join project chat' });
+      console.error('Error joining room:', error);
     }
   });
 
-  // Leave a project chat room
+  // Legacy support for join-project
+  socket.on('join-project', (projectId) => {
+    socket.join(`project:${projectId}`);
+  });
+
+  // Leave a room
+  socket.on('leave-room', (data) => {
+    const { type, id } = data;
+    socket.leave(`${type}:${id}`);
+    console.log(`User ${socket.userId} left ${type}:${id}`);
+  });
+
+  // Legacy support for leave-project
   socket.on('leave-project', (projectId) => {
     socket.leave(`project:${projectId}`);
-    console.log(`User ${socket.userId} left project:${projectId}`);
   });
 
   // Send a message
   socket.on('send-message', async (data) => {
     try {
-      const { projectId, content, mentions = [], replyTo } = data;
+      const { projectId, companyId, recipientId, content, mentions = [], replyTo } = data;
 
-      // Verify user has access
-      const project = await Project.findOne({
-        _id: projectId,
-        $or: [
-          { owner: socket.userId },
-          { 'members.user': socket.userId }
-        ]
-      });
-
-      if (!project) {
-        socket.emit('error', { message: 'Access denied' });
-        return;
-      }
-
-      // Create message
-      const message = await Message.create({
-        project: projectId,
+      const messageData = {
         sender: socket.userId,
         content,
         mentions,
         replyTo,
         type: 'text'
-      });
+      };
 
-      // Populate sender and mentions
-      await message.populate('sender', 'name email profile.profilePicture');
-      await message.populate('mentions', 'name email');
-      if (replyTo) {
-        await message.populate('replyTo', 'content sender');
+      let targetRoom = '';
+      let notificationTargets = [];
+
+      if (projectId) {
+        const project = await Project.findOne({
+          _id: projectId,
+          $or: [{ owner: socket.userId }, { 'members.user': socket.userId }]
+        });
+        if (!project) return socket.emit('error', { message: 'Access denied' });
+        messageData.project = projectId;
+        targetRoom = `project:${projectId}`;
+        notificationTargets = [project.owner.toString(), ...project.members.map(m => m.user.toString())];
+      } else if (companyId) {
+        const user = await User.findById(socket.userId);
+        if (!user || user.company.toString() !== companyId) return socket.emit('error', { message: 'Access denied' });
+        messageData.company = companyId;
+        targetRoom = `company:${companyId}`;
+        // For company, we might not want to notify everyone, or use a different mechanism
+      } else if (recipientId) {
+        messageData.recipient = recipientId;
+        const msg = await Message.create(messageData);
+        await msg.populate('sender', 'name email profile.profilePicture');
+        await msg.populate('recipient', 'name email profile.profilePicture');
+        io.to(`user:${recipientId}`).emit('new-message', msg);
+        io.to(`user:${socket.userId}`).emit('new-message', msg);
+        return;
       }
 
-      // Emit to all users in the project room
-      io.to(`project:${projectId}`).emit('new-message', message);
+      const message = await Message.create(messageData);
+      await message.populate('sender', 'name email profile.profilePicture');
+      await message.populate('mentions', 'name email');
+      if (replyTo) await message.populate('replyTo', 'content sender');
 
-      // Send chat notification to all project members (for unread counter)
-      // Get all project members
-      const projectMembers = [project.owner.toString(), ...project.members.map(m => m.user.toString())];
+      io.to(targetRoom).emit('new-message', message);
 
-      // Send notification to each member's personal room (excluding the sender)
-      projectMembers.forEach(memberId => {
-        if (memberId !== socket.userId) {
-          io.to(`user:${memberId}`).emit('chat-notification', {
-            projectId,
-            projectTitle: project.title,
-            messageId: message._id,
-            senderId: socket.userId,
-            senderName: message.sender.name,
-            content: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
-            timestamp: message.createdAt
-          });
-        }
-      });
-
-      // Send notifications to mentioned users
-      mentions.forEach(userId => {
-        io.to(`user:${userId}`).emit('mention-notification', {
-          projectId,
-          projectTitle: project.title,
-          messageId: message._id,
-          senderName: message.sender.name
+      // Handle notifications
+      if (projectId) {
+        notificationTargets.forEach(memberId => {
+          if (memberId !== socket.userId) {
+            io.to(`user:${memberId}`).emit('chat-notification', {
+              projectId,
+              messageId: message._id,
+              senderName: message.sender.name,
+              content: content.substring(0, 50)
+            });
+          }
         });
-      });
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       socket.emit('error', { message: 'Failed to send message' });
@@ -248,23 +245,32 @@ io.on('connection', async (socket) => {
 
   // Typing indicator
   socket.on('typing', async (data) => {
-    const { projectId, isTyping } = data;
+    const { projectId, companyId, recipientId, isTyping } = data;
     const user = await User.findById(socket.userId).select('name');
-    socket.to(`project:${projectId}`).emit('user-typing', {
-      userId: socket.userId,
-      userName: user?.name,
-      isTyping
-    });
+    const payload = { userId: socket.userId, userName: user?.name, isTyping };
+
+    if (projectId) socket.to(`project:${projectId}`).emit('user-typing', payload);
+    else if (companyId) socket.to(`company:${companyId}`).emit('user-typing', payload);
+    else if (recipientId) socket.to(`user:${recipientId}`).emit('user-typing', payload);
   });
 
   // Mark messages as read
   socket.on('mark-read', async (data) => {
-    const { projectId, messageIds } = data;
+    const { projectId, companyId, dmWithId, messageIds } = data;
     try {
-      await Message.updateMany(
-        { _id: { $in: messageIds }, project: projectId },
-        { $addToSet: { readBy: { user: socket.userId, readAt: new Date() } } }
-      );
+      const query = { _id: { $in: messageIds } };
+      if (projectId) query.project = projectId;
+      else if (companyId) query.company = companyId;
+      else if (dmWithId) {
+        query.$or = [
+          { sender: socket.userId, recipient: dmWithId },
+          { sender: dmWithId, recipient: socket.userId }
+        ];
+      }
+
+      await Message.updateMany(query, {
+        $addToSet: { readBy: { user: socket.userId, readAt: new Date() } }
+      });
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }

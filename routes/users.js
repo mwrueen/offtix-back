@@ -5,7 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateUser } = require('../middleware/validation');
 const upload = require('../middleware/upload');
 
-router.get('/', userController.getUsers);
+router.get('/', authenticate, userController.getUsers);
 router.post('/', validateUser, userController.createUser);
 router.get('/profile', authenticate, userController.getProfile);
 router.put('/profile', authenticate, userController.updateProfile);
