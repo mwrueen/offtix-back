@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const companyController = require('../controllers/companyController');
 const { authenticate } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 
 // Configure multer for company logo uploads
 const storage = multer.diskStorage({
@@ -39,26 +40,32 @@ router.post('/', authenticate, companyController.createCompany);
 router.get('/my-company', authenticate, companyController.getUserCompany);
 router.get('/user-companies', authenticate, companyController.getUserCompanies);
 router.get('/:id', authenticate, companyController.getCompany);
-router.put('/:id/profile', authenticate, companyController.updateCompanyProfile);
+router.put('/:id/profile', authenticate, requirePermission('manageCompanySettings'), companyController.updateCompanyProfile);
 router.post('/:id/logo', authenticate, upload.single('logo'), companyController.uploadCompanyLogo);
-router.post('/:id/add-member', authenticate, companyController.addMember);
-router.put('/:id/update-salary', authenticate, companyController.updateMemberSalary);
-router.put('/:id/update-designation', authenticate, companyController.updateMemberDesignation);
-router.post('/:id/designations', authenticate, companyController.addDesignation);
-router.put('/:id/designation-permissions', authenticate, companyController.updateDesignationPermissions);
-router.delete('/:id/designations/:designationId', authenticate, companyController.deleteDesignation);
 
-// Company Settings Routes
-router.put('/:id/settings', authenticate, companyController.updateCompanySettings);
-router.post('/:id/holidays', authenticate, companyController.addHoliday);
-router.delete('/:id/holidays/:holidayId', authenticate, companyController.removeHoliday);
+// Member management — requires addEmployee permission
+router.post('/:id/add-member', authenticate, requirePermission('addEmployee'), companyController.addMember);
+
+// Salary & designation update — requires editEmployee permission
+router.put('/:id/update-salary', authenticate, requirePermission('editEmployee'), companyController.updateMemberSalary);
+router.put('/:id/update-designation', authenticate, requirePermission('editEmployee'), companyController.updateMemberDesignation);
+
+// Role/Designation management — each action checked individually
+router.post('/:id/designations', authenticate, requirePermission('createDesignation'), companyController.addDesignation);
+router.put('/:id/designation-permissions', authenticate, requirePermission('editDesignation'), companyController.updateDesignationPermissions);
+router.delete('/:id/designations/:designationId', authenticate, requirePermission('deleteDesignation'), companyController.deleteDesignation);
+
+// Company Settings Routes — requires manageCompanySettings permission
+router.put('/:id/settings', authenticate, requirePermission('manageCompanySettings'), companyController.updateCompanySettings);
+router.post('/:id/holidays', authenticate, requirePermission('manageCompanySettings'), companyController.addHoliday);
+router.delete('/:id/holidays/:holidayId', authenticate, requirePermission('manageCompanySettings'), companyController.removeHoliday);
 
 // Workforce Route - Get employees with their tasks
 router.get('/:id/workforce', authenticate, companyController.getWorkforce);
 
 // Organization Hierarchy Routes
 router.get('/:id/organogram', authenticate, companyController.getOrganogram);
-router.put('/:id/reporting-manager', authenticate, companyController.updateReportingManager);
-router.put('/:id/designation-level', authenticate, companyController.updateDesignationLevel);
+router.put('/:id/reporting-manager', authenticate, requirePermission('manageCompanySettings'), companyController.updateReportingManager);
+router.put('/:id/designation-level', authenticate, requirePermission('manageCompanySettings'), companyController.updateDesignationLevel);
 
 module.exports = router;

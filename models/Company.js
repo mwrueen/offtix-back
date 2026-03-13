@@ -88,8 +88,11 @@ const companySchema = new mongoose.Schema({
       editDesignation: { type: Boolean, default: false },
       deleteDesignation: { type: Boolean, default: false },
       createProject: { type: Boolean, default: false },
+      editProject: { type: Boolean, default: false },
+      deleteProject: { type: Boolean, default: false },
       assignEmployeeToProject: { type: Boolean, default: false },
       removeEmployeeFromProject: { type: Boolean, default: false },
+      viewProjectAnalytics: { type: Boolean, default: false },
       manageCompanySettings: { type: Boolean, default: false }
     },
     createdAt: {
@@ -167,7 +170,7 @@ const companySchema = new mongoose.Schema({
         type: String,
         default: '09:00',
         validate: {
-          validator: function(time) {
+          validator: function (time) {
             return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
           },
           message: 'Working hours start must be in HH:MM format'
@@ -177,7 +180,7 @@ const companySchema = new mongoose.Schema({
         type: String,
         default: '17:00',
         validate: {
-          validator: function(time) {
+          validator: function (time) {
             return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
           },
           message: 'Working hours end must be in HH:MM format'
@@ -188,7 +191,7 @@ const companySchema = new mongoose.Schema({
       type: [Number],
       default: [1, 2, 3, 4, 5], // Monday to Friday (0=Sunday, 6=Saturday)
       validate: {
-        validator: function(days) {
+        validator: function (days) {
           return days.every(day => day >= 0 && day <= 6);
         },
         message: 'Working days must be between 0 (Sunday) and 6 (Saturday)'
@@ -221,7 +224,7 @@ const companySchema = new mongoose.Schema({
       type: [Number],
       default: [0, 6], // Sunday and Saturday
       validate: {
-        validator: function(days) {
+        validator: function (days) {
           return days.every(day => day >= 0 && day <= 6);
         },
         message: 'Weekend days must be between 0 (Sunday) and 6 (Saturday)'
@@ -233,7 +236,7 @@ const companySchema = new mongoose.Schema({
 });
 
 // Add default designations when company is created and fix existing members
-companySchema.pre('save', function(next) {
+companySchema.pre('save', function (next) {
   if (this.isNew && this.designations.length === 0) {
     this.designations = [
       {

@@ -3,6 +3,7 @@ const router = express.Router();
 const projectController = require('../controllers/projectController');
 const { authenticate } = require('../middleware/auth');
 const { validateProject } = require('../middleware/validation');
+const { requirePermission } = require('../middleware/permissions');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -35,14 +36,14 @@ const upload = multer({
 router.use(authenticate);
 
 router.get('/', projectController.getProjects);
-router.post('/', validateProject, projectController.createProject);
+router.post('/', requirePermission('createProject'), validateProject, projectController.createProject);
 router.get('/:id', projectController.getProjectById);
-router.put('/:id', validateProject, projectController.updateProject);
+router.put('/:id', projectController.updateProject);
 router.delete('/:id', projectController.deleteProject);
 
 // Team member management routes
-router.post('/:id/members', projectController.addTeamMember);
-router.delete('/:id/members/:userId', projectController.removeTeamMember);
+router.post('/:id/members', requirePermission('assignEmployeeToProject'), projectController.addTeamMember);
+router.delete('/:id/members/:userId', requirePermission('removeEmployeeFromProject'), projectController.removeTeamMember);
 
 // Analytics route
 router.get('/:id/analytics', projectController.getProjectAnalytics);
