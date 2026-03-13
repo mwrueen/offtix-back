@@ -30,6 +30,34 @@ exports.getMyTasks = async (req, res) => {
 
     console.log(`[getMyTasks] Found ${tasks.length} tasks for user ${userId}`);
 
+    // Check if user has any task in progress
+    const hasTaskInProgress = tasks.some(task => {
+      // Check sequential workflow
+      if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
+        const userAssignee = task.sequentialAssignees.find(sa => {
+          const assigneeUserId = sa.user._id ? sa.user._id.toString() : sa.user.toString();
+          return assigneeUserId === userId.toString();
+        });
+        if (userAssignee && userAssignee.status === 'in_progress') {
+          return true;
+        }
+      }
+      // Check role workflow
+      if (task.roleAssignments && task.roleAssignments.length > 0) {
+        const userStep = task.roleAssignments.find(ra => {
+          if (!ra || !ra.assignees || !Array.isArray(ra.assignees)) return false;
+          return ra.assignees.some(a => {
+            const assigneeId = a._id ? a._id.toString() : (a.toString ? a.toString() : String(a));
+            return assigneeId === userId.toString();
+          });
+        });
+        if (userStep && (userStep.status === 'active' || userStep.status === 'in_progress')) {
+          return true;
+        }
+      }
+      return false;
+    });
+
     // Filter and format tasks with user's step info
     const myTasks = tasks.map(task => {
       // Priority 1: Check if user is in sequentialAssignees (simple sequential workflow)
@@ -63,6 +91,7 @@ exports.getMyTasks = async (req, res) => {
               pausedAt: userAssignee.pausedAt,
               completedAt: userAssignee.completedAt
             },
+            canStart: isCurrentAssignee && !hasTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused'),
             createdAt: task.createdAt,
             updatedAt: task.updatedAt
           };
@@ -114,7 +143,7 @@ exports.getMyTasks = async (req, res) => {
             isPrevious: isPreviousStep,
             isNext: isNextStep
           },
-          canStart,
+          canStart: canStart && !hasTaskInProgress,
           useRoleWorkflow: true,
           createdAt: task.createdAt,
           updatedAt: task.updatedAt
@@ -183,6 +212,17 @@ exports.getMyTaskDetails = async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
+    // Check if user has any other task in progress
+    const tasksInProgress = await Task.find({
+      $or: [
+        { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
+        { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
+      ],
+      _id: { $ne: taskId } // Exclude current task
+    });
+
+    const hasOtherTaskInProgress = tasksInProgress.length > 0;
+
     // Check if user is assigned to this task (sequential, role, or regular)
     let isAssigned = false;
     let workflowType = 'regular';
@@ -207,7 +247,7 @@ exports.getMyTaskDetails = async (req, res) => {
           .sort({ createdAt: -1 });
 
         // Determine allowed actions
-        const canStart = isCurrentAssignee && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused');
+        const canStart = isCurrentAssignee && !hasOtherTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused');
         const canPause = isCurrentAssignee && userAssignee.status === 'in_progress';
         const canComplete = isCurrentAssignee && (userAssignee.status === 'in_progress' || userAssignee.status === 'paused');
         const canSendBack = isCurrentAssignee && userAssigneeIndex > 0;
@@ -289,10 +329,10 @@ exports.getMyTaskDetails = async (req, res) => {
           if (currentStep.status === 'pending' || currentStep.status === 'blocked') {
             // Check if previous step is completed
             if (userStepIndex === 0) {
-              canStart = true;
+              canStart = !hasOtherTaskInProgress;
             } else {
               const previousStep = task.roleAssignments[userStepIndex - 1];
-              canStart = previousStep.status === 'completed' || previousStep.status === 'skipped';
+              canStart = !hasOtherTaskInProgress && (previousStep.status === 'completed' || previousStep.status === 'skipped');
             }
           } else if (currentStep.status === 'active' || currentStep.status === 'in_progress') {
             canComplete = true;
@@ -536,6 +576,21 @@ exports.startTask = async (req, res) => {
       if (previousStep.status !== 'completed' && previousStep.status !== 'skipped') {
         return res.status(400).json({ error: 'Previous step must be completed first' });
       }
+    }
+
+    // Check if user has any other task in progress
+    const tasksInProgress = await Task.find({
+      $or: [
+        { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
+        { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
+      ],
+      _id: { $ne: taskId } // Exclude current task
+    });
+
+    if (tasksInProgress.length > 0) {
+      return res.status(400).json({ 
+        error: 'You already have a task in progress. Please complete or pause it before starting a new task.' 
+      });
     }
 
     // Start the step (idempotent - safe if already started)
@@ -865,6 +920,21 @@ exports.startSequentialTask = async (req, res) => {
     // Check if already completed
     if (userAssignee.status === 'completed') {
       return res.status(400).json({ error: 'You have already completed this task' });
+    }
+
+    // Check if user has any other task in progress
+    const tasksInProgress = await Task.find({
+      $or: [
+        { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
+        { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
+      ],
+      _id: { $ne: taskId } // Exclude current task
+    });
+
+    if (tasksInProgress.length > 0) {
+      return res.status(400).json({ 
+        error: 'You already have a task in progress. Please complete or pause it before starting a new task.' 
+      });
     }
 
     // Start the task

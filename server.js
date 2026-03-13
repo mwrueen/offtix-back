@@ -100,6 +100,7 @@ app.use('/api/projects/:projectId/chat', chatRoutes);
 app.use('/api/task-roles', taskRoleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/my-tasks', myTasksRoutes);
+app.use('/api/team-activity', require('./routes/teamActivity'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });
