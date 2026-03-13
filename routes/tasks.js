@@ -11,8 +11,9 @@ router.use(authenticate);
 router.get('/', taskController.getTasks);
 router.post('/', requirePermission('createTask'), validateTask, taskController.createTask);
 router.post('/reorder', requirePermission('editTask'), taskController.reorderTasks);
-router.put('/:id', requirePermission('editTask'), validateTask, taskController.updateTask);
-router.delete('/:id', requirePermission('deleteTask'), taskController.deleteTask);
+router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);
+router.put('/:taskId', requirePermission('editTask'), validateTask, taskController.updateTask);
+router.delete('/:taskId', requirePermission('deleteTask'), taskController.deleteTask);
 
 // Task workflow role routes
 router.get('/:taskId/workflow', taskController.getTaskWithWorkflow);

@@ -168,7 +168,7 @@ exports.createTask = async (req, res) => {
 
 exports.updateTask = async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findById(req.params.taskId);
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -232,7 +232,7 @@ exports.updateTask = async (req, res) => {
 
 exports.deleteTask = async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findById(req.params.taskId);
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -252,7 +252,7 @@ exports.deleteTask = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await Task.findByIdAndDelete(req.params.id);
+    await Task.findByIdAndDelete(req.params.taskId);
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -632,6 +632,57 @@ exports.getTaskWithWorkflow = async (req, res) => {
     res.json(task);
   } catch (error) {
     console.error('Error fetching task with workflow:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.bulkScheduleTasks = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { schedules } = req.body; // Array of { taskId, startDate, dueDate }
+
+    if (!Array.isArray(schedules)) {
+      return res.status(400).json({ error: 'Schedules must be an array' });
+    }
+
+    // Verify project access
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const user = await User.findById(req.user._id).populate('company');
+    const isSuperAdmin = user.role === 'superadmin';
+    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
+      isSuperAdmin || isCompanyCreator;
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Perform bulk update
+    const bulkOps = schedules.map(s => ({
+      updateOne: {
+        filter: { _id: s.taskId },
+        update: {
+          $set: {
+            startDate: s.startDate,
+            dueDate: s.dueDate
+          }
+        }
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Task.bulkWrite(bulkOps);
+    }
+
+    res.json({ success: true, count: bulkOps.length });
+  } catch (error) {
+    console.error('Error in bulkScheduleTasks:', error);
     res.status(500).json({ error: error.message });
   }
 };
