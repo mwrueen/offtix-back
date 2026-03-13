@@ -1,6 +1,6 @@
-# Tabredon Server
+# Offtix Server
 
-Backend API server for the Tabredon project management application.
+Backend API server for the Offtix project management application.
 
 ## Features
 

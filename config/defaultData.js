@@ -8,10 +8,10 @@ const createDefaultData = async () => {
   try {
     // Create admin accounts
     await createAdminAccounts();
-    
+
     // Create sample project with default data
     await createSampleProject();
-    
+
     console.log('Default data initialization completed');
   } catch (error) {
     console.error('Error creating default data:', error);
@@ -58,13 +58,13 @@ const createSampleProject = async () => {
   const adminUser = await User.findOne({ email: 'admin@taskflow.com' });
   if (!adminUser) return;
 
-  const existingProject = await Project.findOne({ title: 'Sample Project - Tabredon Demo' });
+  const existingProject = await Project.findOne({ title: 'Sample Project - Offtix Demo' });
   if (existingProject) return;
 
   // Create sample project
   const project = await Project.create({
-    title: 'Sample Project - Tabredon Demo',
-    description: 'This is a sample project to demonstrate Tabredon\'s features including task management, sprints, phases, and different view modes.',
+    title: 'Sample Project - Offtix Demo',
+    description: 'This is a sample project to demonstrate Offtix\'s features including task management, sprints, phases, and different view modes.',
     status: 'running',
     priority: 'high',
     owner: adminUser._id,
