@@ -30,7 +30,7 @@ exports.getTeamActivity = async (req, res) => {
     let teamMembers = [];
 
     if (userRole === 'superadmin') {
-      const userQuery = { _id: { $ne: userId } };
+      const userQuery = {};
       if (companyId && companyId !== 'personal') {
         userQuery.company = companyId;
       } else if (companyId === 'personal') {
@@ -45,7 +45,6 @@ exports.getTeamActivity = async (req, res) => {
       if (targetCompanyId) {
         teamMembers = await User.find({
           company: targetCompanyId,
-          _id: { $ne: userId },
           role: { $in: ['user', 'admin'] }
         })
           .select('name email role profile createdAt')
@@ -56,8 +55,7 @@ exports.getTeamActivity = async (req, res) => {
       if (companyId && companyId !== 'personal') {
         // If viewing a company, show all members of that company
         teamMembers = await User.find({
-          company: companyId,
-          _id: { $ne: userId }
+          company: companyId
         })
           .select('name email role profile createdAt')
           .sort({ name: 1 });
@@ -81,14 +79,14 @@ exports.getTeamActivity = async (req, res) => {
         userTasks.forEach(task => {
           if (task.assignees) {
             task.assignees.forEach(assignee => {
-              if (assignee && assignee.toString() !== userId.toString()) teamMemberIds.add(assignee.toString());
+              if (assignee) teamMemberIds.add(assignee.toString());
             });
           }
           if (task.roleAssignments) {
             task.roleAssignments.forEach(ra => {
               if (ra.assignees) {
                 ra.assignees.forEach(assignee => {
-                  if (assignee && assignee.toString() !== userId.toString()) teamMemberIds.add(assignee.toString());
+                  if (assignee) teamMemberIds.add(assignee.toString());
                 });
               }
             });
@@ -97,7 +95,7 @@ exports.getTeamActivity = async (req, res) => {
             task.sequentialAssignees.forEach(sa => {
               if (sa.user) {
                 const id = sa.user._id ? sa.user._id.toString() : sa.user.toString();
-                if (id !== userId.toString()) teamMemberIds.add(id);
+                teamMemberIds.add(id);
               }
             });
           }
@@ -121,8 +119,8 @@ exports.getTeamActivity = async (req, res) => {
         // Find in-progress task with project filter
         const inProgressQuery = {
           $or: [
-            { 'sequentialAssignees.user': memberId, 'sequentialAssignees.status': 'in_progress' },
-            { 'roleAssignments.assignees': memberId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } }
+            { sequentialAssignees: { $elemMatch: { user: memberId, status: 'in_progress' } } },
+            { roleAssignments: { $elemMatch: { assignees: memberId, status: { $in: ['active', 'in_progress'] } } } }
           ]
         };
 
@@ -179,8 +177,12 @@ exports.getTeamActivity = async (req, res) => {
 
         // Find last paused task with project filter
         const pausedQuery = {
-          'sequentialAssignees.user': memberId,
-          'sequentialAssignees.status': 'paused'
+          sequentialAssignees: {
+            $elemMatch: {
+              user: memberId,
+              status: 'paused'
+            }
+          }
         };
 
         if (filterProjectId) {
