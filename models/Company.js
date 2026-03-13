@@ -93,6 +93,9 @@ const companySchema = new mongoose.Schema({
       assignEmployeeToProject: { type: Boolean, default: false },
       removeEmployeeFromProject: { type: Boolean, default: false },
       viewProjectAnalytics: { type: Boolean, default: false },
+      createTask: { type: Boolean, default: false },
+      editTask: { type: Boolean, default: false },
+      deleteTask: { type: Boolean, default: false },
       manageCompanySettings: { type: Boolean, default: false }
     },
     createdAt: {
@@ -252,8 +255,14 @@ companySchema.pre('save', function (next) {
           editDesignation: true,
           deleteDesignation: true,
           createProject: true,
+          editProject: true,
+          deleteProject: true,
           assignEmployeeToProject: true,
           removeEmployeeFromProject: true,
+          viewProjectAnalytics: true,
+          createTask: true,
+          editTask: true,
+          deleteTask: true,
           manageCompanySettings: true
         }
       },
@@ -270,8 +279,14 @@ companySchema.pre('save', function (next) {
           editDesignation: false,
           deleteDesignation: false,
           createProject: false,
+          editProject: false,
+          deleteProject: false,
           assignEmployeeToProject: false,
           removeEmployeeFromProject: false,
+          viewProjectAnalytics: false,
+          createTask: false,
+          editTask: false,
+          deleteTask: false,
           manageCompanySettings: true
         }
       },
@@ -288,8 +303,14 @@ companySchema.pre('save', function (next) {
           editDesignation: false,
           deleteDesignation: false,
           createProject: true,
+          editProject: true,
+          deleteProject: true,
           assignEmployeeToProject: true,
           removeEmployeeFromProject: true,
+          viewProjectAnalytics: true,
+          createTask: true,
+          editTask: true,
+          deleteTask: true,
           manageCompanySettings: false
         }
       },
@@ -306,8 +327,14 @@ companySchema.pre('save', function (next) {
           editDesignation: false,
           deleteDesignation: false,
           createProject: false,
+          editProject: true,
+          deleteProject: false,
           assignEmployeeToProject: true,
           removeEmployeeFromProject: false,
+          viewProjectAnalytics: true,
+          createTask: true,
+          editTask: true,
+          deleteTask: false,
           manageCompanySettings: false
         }
       },
