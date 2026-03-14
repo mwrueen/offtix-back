@@ -56,6 +56,17 @@ const roleAssignmentSchema = new mongoose.Schema({
   completedAt: {
     type: Date
   },
+  duration: {
+    value: {
+      type: Number,
+      min: 0
+    },
+    unit: {
+      type: String,
+      enum: ['minutes', 'hours', 'days', 'weeks'],
+      default: 'hours'
+    }
+  },
   // Handoff data from this role to next
   handoff: handoffSchema
 }, { _id: true });
@@ -73,6 +84,10 @@ const taskSchema = new mongoose.Schema({
   status: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TaskStatus'
+  },
+  role: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TaskRole'
   },
   priority: {
     type: String,
@@ -178,7 +193,7 @@ const taskSchema = new mongoose.Schema({
 });
 
 // Get current active role assignment
-taskSchema.methods.getCurrentRoleAssignment = function() {
+taskSchema.methods.getCurrentRoleAssignment = function () {
   if (this.currentRoleIndex >= 0 && this.currentRoleIndex < this.roleAssignments.length) {
     return this.roleAssignments[this.currentRoleIndex];
   }
@@ -186,7 +201,7 @@ taskSchema.methods.getCurrentRoleAssignment = function() {
 };
 
 // Get next role assignment
-taskSchema.methods.getNextRoleAssignment = function() {
+taskSchema.methods.getNextRoleAssignment = function () {
   const nextIndex = this.currentRoleIndex + 1;
   if (nextIndex < this.roleAssignments.length) {
     return this.roleAssignments[nextIndex];
@@ -195,7 +210,7 @@ taskSchema.methods.getNextRoleAssignment = function() {
 };
 
 // Check if workflow is complete
-taskSchema.methods.isWorkflowComplete = function() {
+taskSchema.methods.isWorkflowComplete = function () {
   if (!this.useRoleWorkflow || this.roleAssignments.length === 0) {
     return true;
   }

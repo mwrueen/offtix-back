@@ -598,7 +598,8 @@ exports.updateRoleAssignments = async (req, res) => {
         role: ra.role,
         order: ra.order || index + 1,
         assignees: ra.assignees || [],
-        status: 'pending'
+        status: ra.status || 'pending',
+        duration: ra.duration
       }));
     } else {
       task.roleAssignments = [];
@@ -683,6 +684,68 @@ exports.bulkScheduleTasks = async (req, res) => {
     res.json({ success: true, count: bulkOps.length });
   } catch (error) {
     console.error('Error in bulkScheduleTasks:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Bulk update role durations for multiple tasks
+exports.bulkUpdateRoleDurations = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { updates, roleId, userId } = req.body; // updates: [{ taskId, duration }]
+
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Updates must be an array' });
+    }
+
+    const results = [];
+    for (const update of updates) {
+      if (!update.duration || update.duration === '') continue;
+
+      const task = await Task.findById(update.taskId);
+      if (!task || task.project.toString() !== projectId) continue;
+
+      let saved = false;
+      // Find the specific role assignment
+      let ra = task.roleAssignments.find(a => a.role.toString() === roleId);
+
+      if (!ra) {
+        // Create role assignment if it doesn't exist
+        task.roleAssignments.push({
+          role: roleId,
+          order: task.roleAssignments.length + 1,
+          assignees: [],
+          status: 'pending'
+        });
+        ra = task.roleAssignments[task.roleAssignments.length - 1];
+      }
+
+      if (ra) {
+        ra.duration = { value: parseFloat(update.duration), unit: 'hours' };
+
+        // If userId is provided, ensure they are assigned to this role
+        if (userId) {
+          if (!ra.assignees.some(a => a.toString() === userId)) {
+            ra.assignees.push(userId);
+          }
+          // Also check flat assignees
+          if (!task.assignees.some(a => a.toString() === userId)) {
+            task.assignees.push(userId);
+          }
+        }
+
+        await task.save();
+        saved = true;
+      }
+
+      if (saved) {
+        results.push(task._id);
+      }
+    }
+
+    res.json({ success: true, updatedCount: results.length });
+  } catch (error) {
+    console.error('Error in bulk update role durations:', error);
     res.status(500).json({ error: error.message });
   }
 };
