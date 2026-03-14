@@ -269,16 +269,17 @@ exports.addTeamMember = async (req, res) => {
     }
 
     // Check if user is already a member
-    const isAlreadyMember = project.members.some(member =>
+    const existingMemberIndex = project.members.findIndex(member =>
       member.user.toString() === userId
     );
 
-    if (isAlreadyMember) {
-      return res.status(400).json({ error: 'User is already a team member' });
+    if (existingMemberIndex !== -1) {
+      // Update existing member's role
+      project.members[existingMemberIndex].role = role.trim();
+    } else {
+      // Add the new member
+      project.members.push({ user: userId, role: role.trim() });
     }
-
-    // Add the new member
-    project.members.push({ user: userId, role: role.trim() });
     await project.save();
 
     // Populate and return updated project

@@ -51,25 +51,47 @@ const resolvePermissions = async (userId, userRole, company) => {
 const requirePermission = (permissionKey) => {
     return async (req, res, next) => {
         try {
-            const companyId =
-                req.params.id ||
+            let companyId =
                 req.params.companyId ||
                 req.headers['x-company-id'] ||
                 req.query.companyId ||
                 req.body.companyId;
+
+            // If not found in those places, check req.params.id
+            if (!companyId && req.params.id) {
+                companyId = req.params.id;
+            }
 
             if (!companyId) {
                 // No company context — skip permission check (personal mode)
                 return next();
             }
 
-            const company = await Company.findById(companyId)
+            let company = await Company.findById(companyId)
                 .select('owner members designations')
                 .lean();
 
             if (!company) {
-                return res.status(404).json({ message: 'Company not found' });
+                // FALLBACK: Check if companyId is actually a Project ID
+                // Dynamic require to avoid circular dependency if Project model uses permissions
+                const Project = require('../models/Project');
+                try {
+                    const project = await Project.findById(companyId).select('company').lean();
+
+                    if (project && project.company) {
+                        company = await Company.findById(project.company)
+                            .select('owner members designations')
+                            .lean();
+                    }
+                } catch (e) {
+                    // ID might not be a valid ObjectId for Project findById
+                }
+
+                if (!company) {
+                    return res.status(404).json({ message: 'Company not found' });
+                }
             }
+
 
             const userId = req.user._id;
             const userRole = req.user.role;
