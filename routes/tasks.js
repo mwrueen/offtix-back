@@ -12,6 +12,7 @@ router.get('/', taskController.getTasks);
 router.post('/', requirePermission('createTask'), validateTask, taskController.createTask);
 router.post('/reorder', requirePermission('editTask'), taskController.reorderTasks);
 router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);
+router.post('/bulk-assign-member', requirePermission('editTask'), taskController.bulkAssignMemberToAllTasks);
 router.post('/bulk-update-role-durations', requirePermission('editTask'), taskController.bulkUpdateRoleDurations);
 router.put('/:taskId', requirePermission('editTask'), validateTask, taskController.updateTask);
 router.delete('/:taskId', requirePermission('deleteTask'), taskController.deleteTask);

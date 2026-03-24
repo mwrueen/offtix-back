@@ -67,6 +67,12 @@ const roleAssignmentSchema = new mongoose.Schema({
       default: 'hours'
     }
   },
+  startDate: {
+    type: Date
+  },
+  dueDate: {
+    type: Date
+  },
   // Handoff data from this role to next
   handoff: handoffSchema
 }, { _id: true });

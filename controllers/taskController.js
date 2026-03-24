@@ -665,17 +665,34 @@ exports.bulkScheduleTasks = async (req, res) => {
     }
 
     // Perform bulk update
-    const bulkOps = schedules.map(s => ({
-      updateOne: {
-        filter: { _id: s.taskId },
-        update: {
-          $set: {
-            startDate: s.startDate,
-            dueDate: s.dueDate
+    const bulkOps = schedules.map(s => {
+      if (s.roleId) {
+        return {
+          updateOne: {
+            filter: { _id: s.taskId },
+            update: {
+              $set: {
+                "roleAssignments.$[elem].startDate": s.startDate,
+                "roleAssignments.$[elem].dueDate": s.dueDate
+              }
+            },
+            arrayFilters: [{ "elem.role": s.roleId }]
           }
-        }
+        };
+      } else {
+        return {
+          updateOne: {
+            filter: { _id: s.taskId },
+            update: {
+              $set: {
+                startDate: s.startDate,
+                dueDate: s.dueDate
+              }
+            }
+          }
+        };
       }
-    }));
+    });
 
     if (bulkOps.length > 0) {
       await Task.bulkWrite(bulkOps);
@@ -746,6 +763,87 @@ exports.bulkUpdateRoleDurations = async (req, res) => {
     res.json({ success: true, updatedCount: results.length });
   } catch (error) {
     console.error('Error in bulk update role durations:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+// Bulk assign a member to all tasks in a project with specified roles
+exports.bulkAssignMemberToAllTasks = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { userId, roleIds } = req.body;
+
+    if (!userId || !roleIds || !Array.isArray(roleIds)) {
+      return res.status(400).json({ error: 'userId and roleIds (array) are required' });
+    }
+
+    // Verify project access
+    const project = await (require('../models/Project')).findById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const User = require('../models/User');
+    const user = await User.findById(req.user._id);
+    const hasAccess = project.owner.equals(req.user._id) ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const Task = require('../models/Task');
+    // Get all tasks for this project
+    const tasks = await Task.find({ project: projectId });
+
+    const bulkOps = tasks.map(task => {
+      let roleAssignments = task.roleAssignments ? [...task.roleAssignments] : [];
+
+      // For each requested role ID
+      roleIds.forEach(roleId => {
+        let ra = roleAssignments.find(a => a.role && a.role.toString() === roleId);
+        if (!ra) {
+          // If role assignment doesn't exist, create it
+          roleAssignments.push({
+            role: roleId,
+            order: roleAssignments.length + 1,
+            assignees: [userId],
+            status: 'pending'
+          });
+        } else {
+          // If it exists, add user if not already there
+          if (!ra.assignees.some(a => a.toString() === userId)) {
+            ra.assignees.push(userId);
+          }
+        }
+      });
+
+      // Update flat assignees as well
+      const assignees = task.assignees ? [...task.assignees] : [];
+      if (!assignees.some(a => a.toString() === userId)) {
+        assignees.push(userId);
+      }
+
+      return {
+        updateOne: {
+          filter: { _id: task._id },
+          update: {
+            $set: {
+              roleAssignments,
+              assignees,
+              useRoleWorkflow: roleAssignments.length > 0
+            }
+          }
+        }
+      };
+    });
+
+    if (bulkOps.length > 0) {
+      await Task.bulkWrite(bulkOps);
+    }
+
+    res.json({ success: true, count: bulkOps.length });
+  } catch (error) {
+    console.error('Error in bulkAssignMemberToAllTasks:', error);
     res.status(500).json({ error: error.message });
   }
 };
