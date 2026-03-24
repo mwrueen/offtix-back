@@ -4,6 +4,7 @@ const TaskStatus = require('../models/TaskStatus');
 const User = require('../models/User');
 const TaskRole = require('../models/TaskRole');
 const Notification = require('../models/Notification');
+const TaskUserDuration = require('../models/TaskUserDuration');
 const { validationResult } = require('express-validator');
 
 exports.getTasks = async (req, res) => {
@@ -67,12 +68,23 @@ exports.getTasks = async (req, res) => {
       .populate('sequentialAssignees.user', 'name email profile')
       .sort({ order: 1, createdAt: 1 });
 
+    // Aggregate total duration per task from TaskUserDuration
+    const taskIds = tasks.map(t => t._id);
+    const durationAgg = await TaskUserDuration.aggregate([
+      { $match: { task: { $in: taskIds } } },
+      { $group: { _id: '$task', totalMinutes: { $sum: '$durationMinutes' } } }
+    ]);
+    const durationMap = {};
+    durationAgg.forEach(d => { durationMap[d._id.toString()] = d.totalMinutes; });
+
     // Build hierarchical structure
     const taskMap = new Map();
     const rootTasks = [];
 
     tasks.forEach(task => {
-      taskMap.set(task._id.toString(), { ...task.toObject(), subtasks: [] });
+      const obj = task.toObject();
+      obj.totalDurationMinutes = durationMap[task._id.toString()] || 0;
+      taskMap.set(task._id.toString(), { ...obj, subtasks: [] });
     });
 
     tasks.forEach(task => {
@@ -379,7 +391,9 @@ exports.startTaskWorkflow = async (req, res) => {
     }
 
     if (task.currentRoleIndex >= 0) {
-      return res.status(400).json({ error: 'Workflow already started' });
+      // Workflow already running — just return current state (idempotent)
+      await populateTask(task);
+      return res.json(task);
     }
 
     // Activate first role
@@ -717,12 +731,11 @@ exports.bulkUpdateRoleDurations = async (req, res) => {
 
     const results = [];
     for (const update of updates) {
-      if (!update.duration || update.duration === '') continue;
+      if (update.duration === '' || update.duration == null) continue;
 
       const task = await Task.findById(update.taskId);
       if (!task || task.project.toString() !== projectId) continue;
 
-      let saved = false;
       // Find the specific role assignment
       let ra = task.roleAssignments.find(a => a.role.toString() === roleId);
 
@@ -738,24 +751,33 @@ exports.bulkUpdateRoleDurations = async (req, res) => {
       }
 
       if (ra) {
-        ra.duration = { value: parseFloat(update.duration), unit: 'hours' };
+        const durationHours = parseFloat(update.duration);
+        const durationMinutes = Math.round(durationHours * 60);
+
+        ra.duration = { value: durationHours, unit: 'hours' };
 
         // If userId is provided, ensure they are assigned to this role
         if (userId) {
           if (!ra.assignees.some(a => a.toString() === userId)) {
             ra.assignees.push(userId);
           }
-          // Also check flat assignees
           if (!task.assignees.some(a => a.toString() === userId)) {
             task.assignees.push(userId);
           }
         }
 
         await task.save();
-        saved = true;
-      }
 
-      if (saved) {
+        // Also persist to TaskUserDuration for the DUR(H) column totals
+        if (userId) {
+          const filter = { task: task._id, taskStep: ra._id, user: userId };
+          await TaskUserDuration.findOneAndUpdate(
+            filter,
+            { $set: { durationMinutes } },
+            { upsert: true, new: true }
+          );
+        }
+
         results.push(task._id);
       }
     }
@@ -766,6 +788,204 @@ exports.bulkUpdateRoleDurations = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * GET /projects/:projectId/tasks/bulk-durations?userId=X&roleId=Y
+ * Returns a map of { taskId: durationMinutes } for all tasks where the given
+ * user has a saved duration in the given role.
+ */
+exports.getBulkUserDurations = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { userId, roleId } = req.query;
+
+    if (!userId || !roleId) {
+      return res.status(400).json({ error: 'userId and roleId are required' });
+    }
+
+    // Get all tasks for the project
+    const tasks = await Task.find({ project: projectId }).select('_id roleAssignments').lean();
+
+    // Build map: roleAssignmentId -> taskId for assignments matching the requested role
+    const raToTask = {};
+    tasks.forEach(task => {
+      task.roleAssignments?.forEach(ra => {
+        const raRoleId = ra.role?.toString() || '';
+        if (raRoleId === roleId) {
+          raToTask[ra._id.toString()] = task._id.toString();
+        }
+      });
+    });
+
+    const mongoose = require('mongoose');
+    const raIds = Object.keys(raToTask).map(id => new mongoose.Types.ObjectId(id));
+
+    // Fetch TaskUserDuration records matching any of those role assignments + user
+    const durations = await TaskUserDuration.find({
+      taskStep: { $in: raIds },
+      user: userId
+    }).lean();
+
+    // Build result map: taskId -> durationMinutes
+    const result = {};
+    durations.forEach(d => {
+      const taskId = raToTask[d.taskStep?.toString()];
+      if (taskId) {
+        result[taskId] = (result[taskId] || 0) + d.durationMinutes;
+      }
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error in getBulkUserDurations:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+// ─── Duration per member per role ────────────────────────────────────────────
+
+/**
+ * PUT /projects/:projectId/tasks/:taskId/role-duration
+ *
+ * Set / update duration for a task, optionally scoped to a role assignment.
+ *
+ * Body:
+ *   durationMinutes   {number}  – duration in minutes (>= 0)  [required]
+ *   roleAssignmentId  {string}  – (optional) scope to a specific role step.
+ *                                  Omit to log duration at task level.
+ *   targetUserId      {string}  – (optional) whose duration to set.
+ *                                  Omit / pass own id → sets for yourself.
+ *                                  Pass another user's id → owner/permitted only.
+ *
+ * Rules:
+ *   • Any project member can freely add/update their OWN duration on any task.
+ *   • Project owner OR a member with `editTask` permission can set duration
+ *     for ANY other member on any task.
+ */
+exports.setRoleDuration = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { roleAssignmentId, durationMinutes, targetUserId } = req.body;
+
+    if (
+      durationMinutes === undefined ||
+      durationMinutes === null ||
+      isNaN(Number(durationMinutes)) ||
+      Number(durationMinutes) < 0
+    ) {
+      return res.status(400).json({ error: 'durationMinutes must be a non-negative number' });
+    }
+
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const project = await Project.findById(task.project);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const requestingUserId = req.user._id.toString();
+    const subjectUserId    = targetUserId ? targetUserId.toString() : requestingUserId;
+    const isTargetingSelf  = subjectUserId === requestingUserId;
+
+    const isOwner = project.owner.toString() === requestingUserId;
+    const hasEditPermission = !!(req.userPermissions && req.userPermissions.editTask);
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isPrivileged = isOwner || hasEditPermission || isSuperAdmin;
+
+    // Check the requesting user is at least a project member
+    const isMember = isPrivileged ||
+      project.members.some(m => (m.user?._id || m.user).toString() === requestingUserId);
+    if (!isMember) {
+      return res.status(403).json({ error: 'Access denied. You are not a member of this project.' });
+    }
+
+    // Only owners / permitted members can set duration for someone else
+    if (!isTargetingSelf && !isPrivileged) {
+      return res.status(403).json({
+        error: 'Only project owners or members with editTask permission can set duration for other members'
+      });
+    }
+
+    // Resolve the roleAssignment step id (null = task-level duration)
+    let taskStepId = null;
+    if (roleAssignmentId) {
+      const ra = task.roleAssignments.id(roleAssignmentId);
+      if (!ra) return res.status(404).json({ error: 'Role assignment not found' });
+      taskStepId = ra._id;
+    }
+
+    // Upsert the TaskUserDuration record
+    const duration = await TaskUserDuration.findOneAndUpdate(
+      { task: taskId, taskStep: taskStepId, user: subjectUserId },
+      { task: taskId, taskStep: taskStepId, user: subjectUserId, durationMinutes: Number(durationMinutes) },
+      { upsert: true, new: true }
+    ).populate('user', 'name email profile');
+
+    res.json({ success: true, duration });
+  } catch (error) {
+    console.error('Error setting role duration:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /projects/:projectId/tasks/:taskId/durations
+ *
+ * Retrieve all duration records for a task, grouped by role assignment.
+ *
+ * Rules:
+ *   • Project owner / editTask permission → sees ALL members' durations.
+ *   • Regular member → sees only their own durations.
+ */
+exports.getTaskDurations = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+
+    const task = await Task.findById(taskId).lean();
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const project = await Project.findById(task.project);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const requestingUserId = req.user._id.toString();
+    const isOwner = project.owner.toString() === requestingUserId;
+    const hasEditPermission = !!(req.userPermissions && req.userPermissions.editTask);
+    const isSuperAdmin = req.user.role === 'superadmin';
+    const isPrivileged = isOwner || hasEditPermission || isSuperAdmin;
+
+    // Build query – privileged users see everyone, others see only themselves
+    const query = { task: taskId };
+    if (!isPrivileged) query.user = req.user._id;
+
+    const durations = await TaskUserDuration.find(query)
+      .populate('user', 'name email profile')
+      .lean();
+
+    // Group by roleAssignment id for easy frontend consumption
+    const grouped = {};
+    for (const ra of (task.roleAssignments || [])) {
+      grouped[ra._id.toString()] = {
+        roleAssignmentId: ra._id,
+        role: ra.role,
+        members: []
+      };
+    }
+
+    for (const d of durations) {
+      const raId = d.taskStep ? d.taskStep.toString() : '__task__';
+      if (!grouped[raId]) grouped[raId] = { roleAssignmentId: raId, role: null, members: [] };
+      grouped[raId].members.push({
+        user: d.user,
+        durationMinutes: d.durationMinutes,
+        updatedAt: d.updatedAt
+      });
+    }
+
+    res.json({ taskId, durations: Object.values(grouped) });
+  } catch (error) {
+    console.error('Error getting task durations:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Bulk assign a member to all tasks in a project with specified roles
 exports.bulkAssignMemberToAllTasks = async (req, res) => {
   try {

@@ -14,6 +14,7 @@ router.post('/reorder', requirePermission('editTask'), taskController.reorderTas
 router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);
 router.post('/bulk-assign-member', requirePermission('editTask'), taskController.bulkAssignMemberToAllTasks);
 router.post('/bulk-update-role-durations', requirePermission('editTask'), taskController.bulkUpdateRoleDurations);
+router.get('/bulk-durations', taskController.getBulkUserDurations);
 router.put('/:taskId', requirePermission('editTask'), validateTask, taskController.updateTask);
 router.delete('/:taskId', requirePermission('deleteTask'), taskController.deleteTask);
 
@@ -23,5 +24,11 @@ router.post('/:taskId/workflow/start', taskController.startTaskWorkflow);
 router.post('/:taskId/workflow/complete-role', uploadHandoff.array('files', 10), taskController.completeRoleAndHandoff);
 router.post('/:taskId/workflow/skip-role', taskController.skipCurrentRole);
 router.put('/:taskId/role-assignments', taskController.updateRoleAssignments);
+
+// Duration per member per role
+// - Member sets their own duration (must be assigned to that role)
+// - Owner / permitted member sets any user's duration on any role
+router.put('/:taskId/role-duration', taskController.setRoleDuration);
+router.get('/:taskId/durations', taskController.getTaskDurations);
 
 module.exports = router;
