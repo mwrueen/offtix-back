@@ -10,6 +10,15 @@ const { validationResult } = require('express-validator');
 exports.getMyTasks = async (req, res) => {
   try {
     const userId = req.user._id;
+    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
+
+    const projectFilter = companyId
+      ? { company: companyId }
+      : { $or: [{ company: { $exists: false } }, { company: null }] };
+
+    const allowedProjects = await Project.find(projectFilter).select('_id').lean();
+    const allowedProjectIds = allowedProjects.map(p => p._id);
+    const allowedProjectIdSet = new Set(allowedProjectIds.map(id => id.toString()));
 
     // Find all tasks where user is in sequentialAssignees, roleAssignments OR regular assignees
     const tasks = await Task.find({
@@ -17,9 +26,10 @@ exports.getMyTasks = async (req, res) => {
         { 'sequentialAssignees.user': userId },
         { 'roleAssignments.assignees': userId },
         { assignees: userId }
-      ]
+      ],
+      project: { $in: allowedProjectIds }
     })
-      .populate('project', 'title')
+      .populate('project', 'title company')
       .populate('status', 'name color')
       .populate('roleAssignments.role', 'name color icon')
       .populate('roleAssignments.assignees', 'name email')
@@ -28,10 +38,15 @@ exports.getMyTasks = async (req, res) => {
       .select('title description status project roleAssignments currentRoleIndex useRoleWorkflow sequentialAssignees currentAssigneeIndex useSequentialWorkflow assignees priority createdAt updatedAt')
       .sort({ updatedAt: -1 });
 
-    console.log(`[getMyTasks] Found ${tasks.length} tasks for user ${userId}`);
+    const scopedTasks = tasks.filter(t => {
+      const pid = t.project?._id?.toString();
+      return pid && allowedProjectIdSet.has(pid);
+    });
+
+    console.log(`[getMyTasks] Found ${scopedTasks.length} tasks for user ${userId} (companyId=${companyId || 'personal'})`);
 
     // Check if user has any task in progress
-    const hasTaskInProgress = tasks.some(task => {
+    const hasTaskInProgress = scopedTasks.some(task => {
       // Check sequential workflow
       if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
         const userAssignee = task.sequentialAssignees.find(sa => {
@@ -59,7 +74,7 @@ exports.getMyTasks = async (req, res) => {
     });
 
     // Filter and format tasks with user's step info
-    const myTasks = tasks.map(task => {
+    const myTasks = scopedTasks.map(task => {
       // Priority 1: Check if user is in sequentialAssignees (simple sequential workflow)
       if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
         const userAssigneeIndex = task.sequentialAssignees.findIndex(sa => {
@@ -197,9 +212,10 @@ exports.getMyTaskDetails = async (req, res) => {
   try {
     const { taskId } = req.params;
     const userId = req.user._id;
+    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
 
     const task = await Task.findById(taskId)
-      .populate('project', 'title')
+      .populate('project', 'title company')
       .populate('status', 'name color')
       .populate('roleAssignments.role', 'name color icon order')
       .populate('roleAssignments.assignees', 'name email profile')
@@ -210,6 +226,17 @@ exports.getMyTaskDetails = async (req, res) => {
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const taskCompany = task.project?.company ? task.project.company.toString() : null;
+    if (companyId) {
+      if (taskCompany !== companyId.toString()) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+    } else {
+      if (taskCompany) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
     }
 
     // Check if user has any other task in progress
@@ -719,10 +746,13 @@ exports.completeTask = async (req, res) => {
     // Notify next step assignees if exists
     if (nextStepIndex < task.roleAssignments.length) {
       const nextStep = task.roleAssignments[nextStepIndex];
+      const proj = await Project.findById(task.project).select('company').lean();
+      const companyId = proj?.company || undefined;
       const io = req.app.get('io');
       for (const assignee of nextStep.assignees) {
         const notification = new Notification({
           user: assignee._id,
+          company: companyId,
           type: 'task_role_handoff',
           title: `Task ready: ${task.title}`,
           message: `The previous step has been completed. Task "${task.title}" is now ready for your role.`,
@@ -833,9 +863,12 @@ exports.sendBackForFix = async (req, res) => {
 
     // 4. Create notifications for previous step assignees + real-time events
     const io = req.app.get('io');
+    const proj = await Project.findById(task.project).select('company').lean();
+    const companyId = proj?.company || undefined;
     for (const assignee of previousStep.assignees) {
       const notification = new Notification({
         user: assignee._id,
+        company: companyId,
         type: 'task_send_back',
         title: `Task needs changes: ${task.title}`,
         message: professionalMessage,
@@ -1110,9 +1143,12 @@ exports.completeSequentialTask = async (req, res) => {
       nextAssignee.status = 'active';
       nextAssignee.startedAt = new Date();
 
+      const proj = await Project.findById(task.project._id || task.project).select('company').lean();
+      const companyId = proj?.company || undefined;
       // Notify next assignee via DB + socket
       const notification = new Notification({
         user: nextAssignee.user._id,
+        company: companyId,
         type: 'task_ready',
         title: `Task ready: ${task.title}`,
         message: `The previous assignee has completed their work. Task "${task.title}" is now ready for you.`,
@@ -1249,8 +1285,11 @@ exports.sendBackSequentialTask = async (req, res) => {
     const professionalMessage = message || `Hi ${previousAssignee.user.name}, I reviewed the task and found some items that need adjustment: ${note || 'Please review.'}.`;
 
     // Create notification
+    const proj = await Project.findById(task.project._id || task.project).select('company').lean();
+    const companyId = proj?.company || undefined;
     const notification = new Notification({
       user: previousAssignee.user._id,
+      company: companyId,
       type: 'task_send_back',
       title: `Task sent back: ${task.title}`,
       message: professionalMessage,

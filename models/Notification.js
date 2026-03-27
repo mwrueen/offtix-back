@@ -6,6 +6,13 @@ const notificationSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // Optional company scoping for filtering counts per workspace
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: false,
+    index: true
+  },
   type: {
     type: String,
     enum: [
@@ -76,6 +83,7 @@ const notificationSchema = new mongoose.Schema({
 
 // Index for faster queries
 notificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
+notificationSchema.index({ user: 1, company: 1, isRead: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);
 

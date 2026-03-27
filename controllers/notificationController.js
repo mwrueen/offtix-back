@@ -3,14 +3,15 @@ const Notification = require('../models/Notification');
 // Get user's notifications
 exports.getUserNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ user: req.user._id })
+    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
+    const filter = { user: req.user._id };
+    if (companyId) filter.company = companyId;
+
+    const notifications = await Notification.find(filter)
       .sort({ createdAt: -1 })
       .limit(50);
 
-    const unreadCount = await Notification.countDocuments({
-      user: req.user._id,
-      isRead: false
-    });
+    const unreadCount = await Notification.countDocuments({ ...filter, isRead: false });
 
     res.json({
       notifications,

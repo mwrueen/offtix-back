@@ -183,29 +183,35 @@ exports.editMessage = async (req, res) => {
 exports.getUnreadCounts = async (req, res) => {
   try {
     const userId = req.user._id;
+    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
+    const mongoose = require('mongoose');
 
     // Direct Messages unread counts
-    const dmUnread = await Message.aggregate([
-      {
-        $match: {
-          recipient: userId,
-          isDeleted: false,
-          'readBy.user': { $ne: userId }
-        }
-      },
-      {
-        $group: {
-          _id: '$sender',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const dmMatch = {
+      recipient: userId,
+      isDeleted: false,
+      'readBy.user': { $ne: userId }
+    };
+    const dmPipeline = [{ $match: dmMatch }];
+    if (companyId) {
+      // Best-effort scoping: only count DMs from senders whose user.company matches companyId
+      dmPipeline.push(
+        { $lookup: { from: 'users', localField: 'sender', foreignField: '_id', as: 'senderUser' } },
+        { $unwind: '$senderUser' },
+        { $match: { 'senderUser.company': new mongoose.Types.ObjectId(companyId) } }
+      );
+    }
+    dmPipeline.push({ $group: { _id: '$sender', count: { $sum: 1 } } });
+    const dmUnread = await Message.aggregate(dmPipeline);
 
     // Project Messages unread counts
     // First find all projects user is part of
-    const userProjects = await Project.find({
+    const projectFilter = {
       $or: [{ owner: userId }, { 'members.user': userId }]
-    }).select('_id');
+    };
+    if (companyId) projectFilter.company = companyId;
+
+    const userProjects = await Project.find(projectFilter).select('_id');
     const projectIds = userProjects.map(p => p._id);
 
     const projectUnread = await Message.aggregate([

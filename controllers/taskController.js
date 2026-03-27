@@ -333,6 +333,13 @@ const populateTask = async (task) => {
 
 // Helper function to send role notifications
 const sendRoleNotification = async (type, userId, task, role, handoffData = null, fromUser = null, io = null) => {
+  let companyId = task.company;
+  if (!companyId && task.project) {
+    try {
+      const p = await Project.findById(task.project).select('company').lean();
+      companyId = p?.company || null;
+    } catch (_) { }
+  }
   const title = type === 'task_role_assignment'
     ? `Assigned to role: ${role.name}`
     : type === 'task_role_handoff'
@@ -346,6 +353,7 @@ const sendRoleNotification = async (type, userId, task, role, handoffData = null
 
   const notification = new Notification({
     user: userId,
+    company: companyId || undefined,
     type,
     title,
     message,
@@ -371,7 +379,8 @@ const sendRoleNotification = async (type, userId, task, role, handoffData = null
       type,
       title,
       message,
-      taskId: task._id
+      taskId: task._id,
+      companyId: companyId || undefined
     });
   }
 };

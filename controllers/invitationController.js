@@ -77,6 +77,7 @@ exports.sendInvitation = async (req, res) => {
     if (existingUser) {
       const notification = new Notification({
         user: existingUser._id,
+        company: companyId,
         type: 'invitation',
         title: 'Company Invitation',
         message: `You have been invited to join ${company.name} as ${designation}`,
@@ -124,11 +125,15 @@ exports.getUserInvitations = async (req, res) => {
     }
 
     const userEmail = req.user.email.toLowerCase();
+    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
 
-    const invitations = await Invitation.find({
+    const filter = {
       email: userEmail,
       status: 'pending'
-    })
+    };
+    if (companyId) filter.company = companyId;
+
+    const invitations = await Invitation.find(filter)
       .populate('company', 'name description currency')
       .populate('invitedBy', 'name email')
       .sort({ createdAt: -1 });
