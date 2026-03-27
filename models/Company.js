@@ -96,7 +96,8 @@ const companySchema = new mongoose.Schema({
       createTask: { type: Boolean, default: false },
       editTask: { type: Boolean, default: false },
       deleteTask: { type: Boolean, default: false },
-      manageCompanySettings: { type: Boolean, default: false }
+      manageCompanySettings: { type: Boolean, default: false },
+      manageRecruitment: { type: Boolean, default: false }
     },
     createdAt: {
       type: Date,
@@ -263,7 +264,8 @@ companySchema.pre('save', function (next) {
           createTask: true,
           editTask: true,
           deleteTask: true,
-          manageCompanySettings: true
+          manageCompanySettings: true,
+          manageRecruitment: true
         }
       },
       {
@@ -287,7 +289,8 @@ companySchema.pre('save', function (next) {
           createTask: false,
           editTask: false,
           deleteTask: false,
-          manageCompanySettings: true
+          manageCompanySettings: true,
+          manageRecruitment: true
         }
       },
       {

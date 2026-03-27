@@ -102,6 +102,7 @@ app.use('/api/task-roles', taskRoleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/my-tasks', myTasksRoutes);
 app.use('/api/team-activity', require('./routes/teamActivity'));
+app.use('/api/recruitment', require('./routes/recruitmentRoutes'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });
