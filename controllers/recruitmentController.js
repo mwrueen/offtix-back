@@ -8,7 +8,7 @@ const mongoose = require('mongoose');
 // @access  Private (manageRecruitment permission required)
 exports.createCircular = async (req, res) => {
     try {
-        const { title, role, salaryRange, experience, description, mandatorySkills, niceToHaveSkills, questions } = req.body;
+        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions } = req.body;
 
         const company = await Company.findById(req.user.company);
         if (!company) {
@@ -34,6 +34,9 @@ exports.createCircular = async (req, res) => {
             salaryRange,
             experience,
             description,
+            jobNature: jobNature || 'remote',
+            location: location || company.address || '',
+            benefits: benefits || '',
             mandatorySkills,
             niceToHaveSkills,
             questions,
@@ -68,8 +71,8 @@ exports.getCircularDetails = async (req, res) => {
     try {
         const circular = await JobCircular.findById(req.params.id)
             .populate('company', 'name logo description website industries');
-        if (!circular) {
-            return res.status(404).json({ message: 'Job circular not found' });
+        if (!circular || (circular.status !== 'active' && !req.user)) {
+            return res.status(404).json({ message: 'Job circular not found or not currently active' });
         }
         res.json(circular);
     } catch (error) {
@@ -246,6 +249,78 @@ exports.getCompanyStats = async (req, res) => {
         };
 
         res.json(stats);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Update a job circular
+// @route   PUT /api/recruitment/circulars/:id
+// @access  Private
+exports.updateCircular = async (req, res) => {
+    try {
+        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions, status } = req.body;
+        const circular = await JobCircular.findById(req.params.id);
+
+        if (!circular) return res.status(404).json({ message: 'Circular not found' });
+        if (circular.company.toString() !== req.user.company.toString()) {
+            return res.status(403).json({ message: 'Unauthorized access' });
+        }
+
+        const company = await Company.findById(req.user.company);
+        const isOwner = company.owner.toString() === req.user._id.toString();
+
+        if (!isOwner) {
+            const member = company.members.find(m => m.user.toString() === req.user._id.toString());
+            const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+            if (!designation?.permissions?.manageRecruitment) {
+                return res.status(403).json({ message: 'Permission denied' });
+            }
+        }
+
+        circular.title = title || circular.title;
+        circular.role = role || circular.role;
+        circular.salaryRange = salaryRange || circular.salaryRange;
+        circular.experience = experience !== undefined ? experience : circular.experience;
+        circular.description = description || circular.description;
+        circular.jobNature = jobNature || circular.jobNature;
+        circular.location = location || circular.location;
+        circular.benefits = benefits || circular.benefits;
+        circular.mandatorySkills = mandatorySkills || circular.mandatorySkills;
+        circular.niceToHaveSkills = niceToHaveSkills || circular.niceToHaveSkills;
+        circular.questions = questions || circular.questions;
+        circular.status = status || circular.status;
+
+        await circular.save();
+        res.json(circular);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete a job circular
+// @route   DELETE /api/recruitment/circulars/:id
+// @access  Private
+exports.deleteCircular = async (req, res) => {
+    try {
+        const circular = await JobCircular.findById(req.params.id);
+        if (!circular) return res.status(404).json({ message: 'Circular not found' });
+        if (circular.company.toString() !== req.user.company.toString()) {
+            return res.status(403).json({ message: 'Unauthorized access' });
+        }
+
+        const company = await Company.findById(req.user.company);
+        const isOwner = company.owner.toString() === req.user._id.toString();
+        if (!isOwner) {
+            const member = company.members.find(m => m.user.toString() === req.user._id.toString());
+            const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+            if (!designation?.permissions?.manageRecruitment) {
+                return res.status(403).json({ message: 'Permission denied' });
+            }
+        }
+
+        await JobCircular.findByIdAndDelete(req.params.id);
+        res.json({ message: 'Circular deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

@@ -30,6 +30,19 @@ const jobCircularSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    jobNature: {
+        type: String,
+        enum: ['remote', 'on-site', 'hybrid'],
+        default: 'remote'
+    },
+    location: {
+        type: String,
+        trim: true
+    },
+    benefits: {
+        type: String,
+        trim: true
+    },
     mandatorySkills: [{
         type: String,
         trim: true
@@ -42,15 +55,15 @@ const jobCircularSchema = new mongoose.Schema({
         question: { type: String, required: true },
         type: {
             type: String,
-            enum: ['text', 'long-text', 'selection', 'multiple-choice'],
+            enum: ['text', 'long-text', 'selection', 'radio', 'checkbox'],
             default: 'text'
         },
-        options: [String], // for selection/multiple-choice
+        options: [String], // for selection/radio/checkbox
         required: { type: Boolean, default: true }
     }],
     status: {
         type: String,
-        enum: ['active', 'closed', 'paused'],
+        enum: ['active', 'closed', 'paused', 'draft'],
         default: 'active'
     },
     createdBy: {
