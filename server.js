@@ -103,6 +103,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/my-tasks', myTasksRoutes);
 app.use('/api/team-activity', require('./routes/teamActivity'));
 app.use('/api/recruitment', require('./routes/recruitmentRoutes'));
+app.use('/api/skills', require('./routes/skills.js'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });

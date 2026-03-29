@@ -15,12 +15,16 @@ exports.createCircular = async (req, res) => {
             return res.status(404).json({ message: 'Company not found' });
         }
 
-        // Check permission
-        const member = company.members.find(m => m.user.toString() === req.user._id.toString());
-        const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+        // Check if user is owner/founder
+        const isOwner = company.owner.toString() === req.user._id.toString();
 
-        if (!designation?.permissions?.manageRecruitment) {
-            return res.status(403).json({ message: 'Permission denied' });
+        if (!isOwner) {
+            const member = company.members.find(m => m.user.toString() === req.user._id.toString());
+            const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+
+            if (!designation?.permissions?.manageRecruitment) {
+                return res.status(403).json({ message: 'Permission denied' });
+            }
         }
 
         const jobCircular = new JobCircular({
@@ -123,11 +127,19 @@ exports.applyForJob = async (req, res) => {
 exports.getApplicants = async (req, res) => {
     try {
         const company = await Company.findById(req.user.company);
-        const member = company.members.find(m => m.user.toString() === req.user._id.toString());
-        const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+        if (!company) {
+            return res.status(404).json({ message: 'Company not found' });
+        }
 
-        if (!designation?.permissions?.manageRecruitment) {
-            return res.status(403).json({ message: 'Permission denied' });
+        const isOwner = company.owner.toString() === req.user._id.toString();
+
+        if (!isOwner) {
+            const member = company.members.find(m => m.user.toString() === req.user._id.toString());
+            const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+
+            if (!designation?.permissions?.manageRecruitment) {
+                return res.status(403).json({ message: 'Permission denied' });
+            }
         }
 
         const applicants = await Application.find({ jobCircular: req.params.id });
@@ -189,12 +201,51 @@ exports.hireCandidate = async (req, res) => {
         application.hiredAt = new Date();
         application.hiredBy = req.user._id;
 
-        // 2. We can automatically create a user OR send an invitation
-        // For now, let's keep it simple and just update application status.
-        // The requirement says "then with setting salary hire him"
-
         await application.save();
         res.json({ message: 'Candidate hired successfully!', application });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Get recruitment stats for the company
+// @route   GET /api/recruitment/stats
+// @access  Private
+exports.getCompanyStats = async (req, res) => {
+    try {
+        const companyId = req.user.company;
+        const company = await Company.findById(companyId);
+        if (!company) return res.status(404).json({ message: 'Company not found' });
+
+        const isOwner = company.owner.toString() === req.user._id.toString();
+
+        if (!isOwner) {
+            const member = company.members.find(m => m.user.toString() === req.user._id.toString());
+            const designation = company.designations.find(d => d.name === (member?.designation || 'Employee'));
+
+            if (!designation?.permissions?.manageRecruitment) {
+                return res.status(403).json({ message: 'Permission denied' });
+            }
+        }
+
+        const [totalCirculars, totalApplicants, statusStats] = await Promise.all([
+            JobCircular.countDocuments({ company: companyId }),
+            Application.countDocuments({ company: companyId }),
+            Application.aggregate([
+                { $match: { company: companyId } },
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ])
+        ]);
+
+        const stats = {
+            totalCirculars,
+            totalApplicants,
+            shortlisted: statusStats.find(s => s._id === 'shortlisted')?.count || 0,
+            interviewed: statusStats.find(s => s._id === 'interviewed')?.count || 0,
+            hired: statusStats.find(s => s._id === 'hired')?.count || 0,
+        };
+
+        res.json(stats);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
