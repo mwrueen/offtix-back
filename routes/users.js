@@ -14,6 +14,7 @@ router.get('/company/:companyId', authenticate, userController.getCompanyEmploye
 router.get('/:id', userController.getUserById);
 router.put('/:id', validateUser, userController.updateUser);
 router.put('/:id/password', authenticate, userController.updateUserPassword);
+router.get('/:id/export-pdf', userController.exportResumePDF);
 router.delete('/:id', userController.deleteUser);
 
 module.exports = router;

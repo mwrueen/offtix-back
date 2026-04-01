@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: function() {
+    required: function () {
       return !this.googleId && !this.facebookId;
     },
     minlength: 6
@@ -77,19 +77,26 @@ const userSchema = new mongoose.Schema({
       endDate: Date
     }],
     skills: [String],
-    languages: [String]
+    languages: [String],
+    linkedin: String,
+    achievements: [{
+      title: String,
+      issuer: String,
+      date: Date,
+      description: String
+    }]
   }
 }, {
   timestamps: true
 });
 
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
-userSchema.methods.comparePassword = async function(password) {
+userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
 
