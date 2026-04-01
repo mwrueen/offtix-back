@@ -426,7 +426,7 @@ exports.getUserCompanies = async (req, res) => {
       ]
     })
       .populate('owner', 'name email')
-      .select('_id name description owner members designations currency')
+      .select('_id name description owner members designations currency logo')
       .lean();
 
     // Add user role and permissions in each company
@@ -499,6 +499,7 @@ exports.getUserCompanies = async (req, res) => {
         name: company.name,
         description: company.description,
         currency: company.currency,
+        logo: company.logo,
         userRole,
         userDesignation,
         userPermissions,

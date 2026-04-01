@@ -50,7 +50,7 @@ exports.getAllCompanies = async (req, res) => {
         // Fetch all companies with owner and member information
         const companies = await Company.find()
             .populate('owner', 'name email')
-            .select('name description industry website email phone address city state country zipCode foundedYear companySize currency members owner createdAt')
+            .select('name description industry website email phone address city state country zipCode foundedYear companySize currency members owner createdAt logo')
             .lean();
 
         // Add member count and format data
@@ -72,7 +72,8 @@ exports.getAllCompanies = async (req, res) => {
             currency: company.currency,
             memberCount: company.members?.length || 0,
             owner: company.owner,
-            createdAt: company.createdAt
+            createdAt: company.createdAt,
+            logo: company.logo
         }));
 
         res.json(companiesWithOverview);
