@@ -1,6 +1,7 @@
 const JobCircular = require('../models/JobCircular');
 const Application = require('../models/Application');
 const Company = require('../models/Company');
+const Notification = require('../models/Notification');
 const mongoose = require('mongoose');
 
 // @desc    Create a job circular
@@ -90,34 +91,32 @@ exports.applyForJob = async (req, res) => {
             return res.status(404).json({ message: 'Active job circular not found' });
         }
 
-        const { applicant, answers } = req.body;
-
-        // Basic skill/experience verification as per requirement
-        const missingSkills = circular.mandatorySkills.filter(skill =>
-            !applicant.skills.map(s => s.toLowerCase()).includes(skill.toLowerCase())
-        );
-
-        if (missingSkills.length > 0) {
-            return res.status(400).json({
-                message: 'You must have all mandatory skills to apply.',
-                missing: missingSkills
-            });
-        }
-
-        if (applicant.experience < circular.experience) {
-            return res.status(400).json({
-                message: `Min ${circular.experience} years of experience required.`
-            });
-        }
+        const { user, applicant, answers } = req.body;
 
         const application = new Application({
             jobCircular: circular._id,
             company: circular.company,
+            user, // Optional link to internal profile
             applicant,
             answers
         });
 
         await application.save();
+
+        // Notify company founder/owner
+        const company = await Company.findById(circular.company);
+        if (company && company.owner) {
+            await Notification.create({
+                user: company.owner,
+                company: company._id,
+                type: 'job_application',
+                title: 'New Job Application',
+                message: `${applicant.name} has applied for the "${circular.title}" position.`,
+                relatedId: application._id,
+                relatedModel: 'Application'
+            });
+        }
+
         res.status(201).json({ message: 'Application submitted successfully!', applicationId: application._id });
     } catch (error) {
         res.status(500).json({ message: error.message });

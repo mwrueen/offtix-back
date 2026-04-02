@@ -11,13 +11,18 @@ const applicationSchema = new mongoose.Schema({
         ref: 'Company',
         required: true
     },
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: false
+    },
     applicant: {
         name: { type: String, required: true },
         email: { type: String, required: true, lowercase: true },
-        phone: { type: String, required: true },
+        phone: { type: String },
         resumeUrl: { type: String },
         portfolioUrl: { type: String },
-        experience: { type: Number, required: true },
+        experience: { type: Number },
         skills: [String]
     },
     answers: [{

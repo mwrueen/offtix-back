@@ -25,7 +25,8 @@ const notificationSchema = new mongoose.Schema({
       'task_role_handoff',     // Notified when previous role hands off to you
       'task_role_completed',   // Notified when your role is marked complete
       'task_ready',
-      'task_send_back'
+      'task_send_back',
+      'job_application'
     ],
     required: true
   },
@@ -42,7 +43,7 @@ const notificationSchema = new mongoose.Schema({
   },
   relatedModel: {
     type: String,
-    enum: ['Invitation', 'Project', 'Company', 'Task', 'TaskRole']
+    enum: ['Invitation', 'Project', 'Company', 'Task', 'TaskRole', 'Application']
   },
   // Additional metadata for role notifications
   metadata: {
