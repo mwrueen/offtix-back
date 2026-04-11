@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const recruitmentController = require('../controllers/recruitmentController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, optionalAuthenticate } = require('../middleware/auth');
 
-// Public Routes
+// Public job listings (optional auth for “already applied” on detail)
 router.get('/public/circulars', recruitmentController.getPublicCirculars);
-router.get('/public/circulars/:id', recruitmentController.getCircularDetails);
-router.post('/public/apply/:id', recruitmentController.applyForJob);
+router.get('/public/circulars/:id', optionalAuthenticate, recruitmentController.getCircularDetails);
+router.post('/public/apply/:id', authenticate, recruitmentController.applyForJob);
 
 // Admin Routes (Private)
 router.use(authenticate);

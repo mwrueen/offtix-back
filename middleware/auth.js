@@ -29,3 +29,25 @@ exports.authenticate = async (req, res, next) => {
     res.status(401).json({ error: 'Invalid token.' });
   }
 };
+
+/** Sets req.user when a valid Bearer token is present; otherwise continues without error. */
+exports.optionalAuthenticate = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return next();
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-password');
+    if (user) {
+      req.user = user;
+      const companyHeader = req.header('X-Company-Id');
+      if (companyHeader) {
+        req.user.company = companyHeader;
+      }
+    }
+    next();
+  } catch {
+    next();
+  }
+};

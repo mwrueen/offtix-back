@@ -544,15 +544,20 @@ const generateResumeHTML = (user) => {
         ${profile.education && profile.education.length > 0 ? `
         <div>
           <h2 class="section-title">Credentials</h2>
-          ${profile.education.map(edu => `
+          ${profile.education.map(edu => {
+            const meta = [edu.level, edu.stream, edu.field].filter(Boolean).join(' · ');
+            return `
             <div class="exp-item">
               <div class="exp-header">
-                <div class="exp-role" style="font-size: 14px;">${edu.degree}</div>
+                <div class="exp-role" style="font-size: 14px;">${edu.degree || ''}</div>
               </div>
-              <div class="exp-company" style="font-size: 12px; margin-bottom: 2px;">${edu.institution}</div>
+              <div class="exp-company" style="font-size: 12px; margin-bottom: 2px;">${edu.institution || ''}</div>
+              ${meta ? `<div class="exp-desc" style="font-size: 11px; color: #64748b;">${meta}</div>` : ''}
+              ${edu.result ? `<div class="exp-desc" style="font-size: 11px;">Result: ${edu.result}</div>` : ''}
               <div class="exp-date">${formatDate(edu.startDate)} — ${edu.current ? 'ONGOING' : formatDate(edu.endDate)}</div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>` : ''}
         
         ${profile.projects && profile.projects.length > 0 ? `

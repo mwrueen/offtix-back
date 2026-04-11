@@ -64,6 +64,12 @@ const userSchema = new mongoose.Schema({
       institution: String,
       degree: String,
       field: String,
+      /** Academic stream / group (e.g. Science, Arts, Commerce). */
+      stream: String,
+      /** Qualification tier (e.g. graduation, postgraduate). */
+      level: String,
+      /** Grade, GPA, division, etc. */
+      result: String,
       startDate: Date,
       endDate: Date,
       current: { type: Boolean, default: false }

@@ -75,7 +75,22 @@ exports.getCircularDetails = async (req, res) => {
         if (!circular || (circular.status !== 'active' && !req.user)) {
             return res.status(404).json({ message: 'Job circular not found or not currently active' });
         }
-        res.json(circular);
+        const payload = circular.toObject ? circular.toObject() : { ...circular };
+        if (req.user) {
+            const emailNorm = (req.user.email || '').toLowerCase().trim();
+            const or = [{ user: req.user._id }];
+            if (emailNorm) {
+                or.push({ 'applicant.email': emailNorm });
+            }
+            const existing = await Application.findOne({
+                jobCircular: circular._id,
+                $or: or
+            }).select('_id');
+            payload.alreadyApplied = !!existing;
+        } else {
+            payload.alreadyApplied = false;
+        }
+        res.json(payload);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -83,7 +98,7 @@ exports.getCircularDetails = async (req, res) => {
 
 // @desc    Apply for a job
 // @route   POST /api/recruitment/public/apply/:id
-// @access  Public
+// @access  Private (authenticated users only; enforced by route middleware)
 exports.applyForJob = async (req, res) => {
     try {
         const circular = await JobCircular.findById(req.params.id);
@@ -91,13 +106,32 @@ exports.applyForJob = async (req, res) => {
             return res.status(404).json({ message: 'Active job circular not found' });
         }
 
-        const { user, applicant, answers } = req.body;
+        const { applicant, answers } = req.body;
+        if (!applicant?.email || !applicant?.name) {
+            return res.status(400).json({ message: 'Applicant name and email are required' });
+        }
+
+        const emailNorm = String(applicant.email).toLowerCase().trim();
+        const linkedUserId = req.user?._id || null;
+
+        const duplicateOr = [{ 'applicant.email': emailNorm }];
+        if (linkedUserId) {
+            duplicateOr.push({ user: linkedUserId });
+        }
+
+        const existing = await Application.findOne({
+            jobCircular: circular._id,
+            $or: duplicateOr
+        }).select('_id');
+        if (existing) {
+            return res.status(409).json({ message: 'You have already applied for this position.' });
+        }
 
         const application = new Application({
             jobCircular: circular._id,
             company: circular.company,
-            user, // Optional link to internal profile
-            applicant,
+            user: linkedUserId || undefined,
+            applicant: { ...applicant, email: emailNorm },
             answers
         });
 
