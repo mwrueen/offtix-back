@@ -3,6 +3,7 @@ const Notification = require('../models/Notification');
 const Company = require('../models/Company');
 const User = require('../models/User');
 const crypto = require('crypto');
+const emitSocketNotification = require('../utils/emitSocketNotification');
 
 // Send invitation to join company
 exports.sendInvitation = async (req, res) => {
@@ -85,6 +86,7 @@ exports.sendInvitation = async (req, res) => {
         relatedModel: 'Invitation'
       });
       await notification.save();
+      emitSocketNotification(req, existingUser._id, notification);
     }
 
     const populatedInvitation = await Invitation.findById(invitation._id)

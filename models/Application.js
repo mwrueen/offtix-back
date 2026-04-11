@@ -46,7 +46,16 @@ const applicationSchema = new mongoose.Schema({
         currency: { type: String, default: 'USD' }
     },
     hiredAt: Date,
-    hiredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    hiredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    /** Role / job description text attached to the offer at hire time (may differ from circular copy). */
+    hireRoleDescription: { type: String },
+    /** After hire: pending until candidate accepts the offer letter; then they are added as a company member. */
+    offerLetterStatus: {
+        type: String,
+        enum: ['none', 'pending', 'accepted', 'declined'],
+        default: 'none'
+    },
+    offerAcceptedAt: { type: Date }
 }, {
     timestamps: true
 });

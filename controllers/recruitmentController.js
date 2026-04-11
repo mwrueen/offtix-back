@@ -2,7 +2,21 @@ const JobCircular = require('../models/JobCircular');
 const Application = require('../models/Application');
 const Company = require('../models/Company');
 const Notification = require('../models/Notification');
+const User = require('../models/User');
 const mongoose = require('mongoose');
+const emitSocketNotification = require('../utils/emitSocketNotification');
+
+function applicantMatchesUser(application, reqUser) {
+    if (!application || !reqUser) return false;
+    const rawUser = application.user;
+    const uid = rawUser != null
+        ? (rawUser._id ? rawUser._id.toString() : rawUser.toString())
+        : null;
+    if (uid && uid === reqUser._id.toString()) return true;
+    const appEmail = String(application.applicant?.email || '').toLowerCase().trim();
+    const userEmail = String(reqUser.email || '').toLowerCase().trim();
+    return Boolean(appEmail && userEmail && appEmail === userEmail);
+}
 
 // @desc    Create a job circular
 // @route   POST /api/recruitment/circulars
@@ -140,7 +154,7 @@ exports.applyForJob = async (req, res) => {
         // Notify company founder/owner
         const company = await Company.findById(circular.company);
         if (company && company.owner) {
-            await Notification.create({
+            const ownerNotif = await Notification.create({
                 user: company.owner,
                 company: company._id,
                 type: 'job_application',
@@ -149,6 +163,7 @@ exports.applyForJob = async (req, res) => {
                 relatedId: application._id,
                 relatedModel: 'Application'
             });
+            emitSocketNotification(req, company.owner, ownerNotif);
         }
 
         res.status(201).json({ message: 'Application submitted successfully!', applicationId: application._id });
@@ -178,8 +193,46 @@ exports.getApplicants = async (req, res) => {
             }
         }
 
-        const applicants = await Application.find({ jobCircular: req.params.id });
-        res.json(applicants);
+        const apps = await Application.find({ jobCircular: req.params.id }).lean();
+
+        const emailsNeedingUser = [
+            ...new Set(
+                apps
+                    .filter((a) => !a.user && a.applicant?.email)
+                    .map((a) => String(a.applicant.email).toLowerCase().trim())
+            )
+        ];
+
+        let emailToUserId = new Map();
+        if (emailsNeedingUser.length) {
+            const matched = await User.find({ email: { $in: emailsNeedingUser } })
+                .select('_id email')
+                .lean();
+            emailToUserId = new Map(matched.map((u) => [u.email, u._id]));
+        }
+
+        const backfillIds = [];
+        const payload = apps.map((app) => {
+            if (app.user) return app;
+            const em =
+                app.applicant?.email && String(app.applicant.email).toLowerCase().trim();
+            const resolved = em && emailToUserId.get(em);
+            if (resolved) {
+                backfillIds.push({ _id: app._id, user: resolved });
+                return { ...app, user: resolved };
+            }
+            return app;
+        });
+
+        if (backfillIds.length) {
+            await Promise.all(
+                backfillIds.map(({ _id, user }) =>
+                    Application.updateOne({ _id }, { $set: { user } }).exec()
+                )
+            );
+        }
+
+        res.json(payload);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -196,6 +249,34 @@ exports.updateApplicationStatus = async (req, res) => {
         if (!application) return res.status(404).json({ message: 'Application not found' });
         if (application.company.toString() !== req.user.company.toString()) {
             return res.status(403).json({ message: 'Unauthorized access' });
+        }
+
+        const wasHired = application.status === 'hired';
+        const offerAccepted = application.offerLetterStatus === 'accepted';
+
+        if (wasHired && status !== 'hired') {
+            if (offerAccepted && application.user) {
+                const company = await Company.findById(application.company);
+                const uid = application.user.toString();
+                if (company && company.owner.toString() !== uid) {
+                    company.members = company.members.filter(
+                        (m) => m.user.toString() !== uid
+                    );
+                    await company.save();
+                }
+                const stillMember = await Company.findOne({
+                    $or: [{ owner: application.user }, { 'members.user': application.user }]
+                }).select('_id');
+                await User.findByIdAndUpdate(application.user, {
+                    company: stillMember ? stillMember._id : null
+                });
+            }
+            application.hiredAt = undefined;
+            application.hiredBy = undefined;
+            application.offerLetterStatus = 'none';
+            application.offerAcceptedAt = undefined;
+            application.offeredSalary = undefined;
+            application.hireRoleDescription = undefined;
         }
 
         application.status = status;
@@ -221,7 +302,7 @@ exports.updateApplicationStatus = async (req, res) => {
 // @access  Private
 exports.hireCandidate = async (req, res) => {
     try {
-        const { salary } = req.body;
+        const { salary, roleDescription } = req.body;
         const application = await Application.findById(req.params.id).populate('jobCircular');
 
         if (!application) return res.status(404).json({ message: 'Application not found' });
@@ -231,14 +312,176 @@ exports.hireCandidate = async (req, res) => {
             return res.status(403).json({ message: 'Unauthorized access' });
         }
 
-        // 1. Mark as hired
+        // 1. Mark as hired; candidate must accept offer letter before joining as employee
         application.status = 'hired';
-        application.offeredSalary = { amount: salary };
+        application.offeredSalary = { amount: salary, currency: company.currency || 'USD' };
         application.hiredAt = new Date();
         application.hiredBy = req.user._id;
+        application.offerLetterStatus = 'pending';
+        if (roleDescription != null && typeof roleDescription === 'string') {
+            application.hireRoleDescription = roleDescription.slice(0, 100000);
+        }
 
         await application.save();
+
+        let notifyUserId = application.user;
+        if (!notifyUserId) {
+            const u = await User.findOne({ email: application.applicant.email }).select('_id').lean();
+            notifyUserId = u?._id;
+        }
+        const hiringCompany = await Company.findById(application.company).select('name');
+        if (notifyUserId) {
+            const offerNotif = await Notification.create({
+                user: notifyUserId,
+                company: application.company,
+                type: 'job_offer',
+                title: 'Job offer letter',
+                message: `${hiringCompany?.name || 'A company'} sent you an offer. Review and accept it to join as an employee.`,
+                relatedId: application._id,
+                relatedModel: 'Application'
+            });
+            emitSocketNotification(req, notifyUserId, offerNotif);
+        }
+
         res.json({ message: 'Candidate hired successfully!', application });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Candidate: offer letter details
+// @route   GET /api/recruitment/applications/:id/offer-details
+// @access  Private
+exports.getOfferLetterDetails = async (req, res) => {
+    try {
+        const application = await Application.findById(req.params.id)
+            .populate('company', 'name logo currency')
+            .populate('jobCircular', 'title role');
+
+        if (!application) {
+            return res.status(404).json({ message: 'Application not found' });
+        }
+        if (application.status !== 'hired') {
+            return res.status(400).json({ message: 'There is no offer associated with this application.' });
+        }
+        if (!applicantMatchesUser(application, req.user)) {
+            return res.status(403).json({ message: 'You are not authorized to view this offer.' });
+        }
+
+        if (application.offerLetterStatus === 'accepted') {
+            return res.json({
+                phase: 'accepted',
+                companyId: application.company._id,
+                companyName: application.company.name
+            });
+        }
+        if (application.offerLetterStatus === 'pending') {
+            return res.json({
+                phase: 'pending',
+                applicationId: application._id,
+                company: application.company,
+                jobTitle: application.jobCircular?.title,
+                role: application.jobCircular?.role,
+                offeredSalary: application.offeredSalary,
+                hireRoleDescription: application.hireRoleDescription || '',
+                applicantName: application.applicant?.name
+            });
+        }
+        if (!application.offerLetterStatus || application.offerLetterStatus === 'none') {
+            return res.status(400).json({
+                message: 'This hire does not include an online offer letter. Contact the employer if you need access.'
+            });
+        }
+        if (application.offerLetterStatus === 'declined') {
+            return res.status(400).json({ message: 'This offer was declined.' });
+        }
+        return res.status(400).json({ message: 'This offer is no longer available.' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Candidate: accept offer and join company as employee
+// @route   POST /api/recruitment/applications/:id/accept-offer
+// @access  Private
+exports.acceptOfferLetter = async (req, res) => {
+    try {
+        const application = await Application.findById(req.params.id).populate('jobCircular');
+
+        if (!application) {
+            return res.status(404).json({ message: 'Application not found' });
+        }
+        if (application.status !== 'hired') {
+            return res.status(400).json({ message: 'Invalid application state.' });
+        }
+        if (application.offerLetterStatus !== 'pending') {
+            if (application.offerLetterStatus === 'accepted') {
+                return res.status(400).json({ message: 'You have already accepted this offer.' });
+            }
+            if (!application.offerLetterStatus || application.offerLetterStatus === 'none') {
+                return res.status(400).json({
+                    message: 'This hire does not use online offer acceptance. Contact the employer if you need access.'
+                });
+            }
+            return res.status(400).json({ message: 'This offer is no longer available.' });
+        }
+        if (!applicantMatchesUser(application, req.user)) {
+            return res.status(403).json({ message: 'You are not authorized to accept this offer.' });
+        }
+
+        const userId = req.user._id;
+        if (application.user && application.user.toString() !== userId.toString()) {
+            return res.status(403).json({ message: 'Sign in as the applicant account linked to this application.' });
+        }
+        if (!application.user) {
+            application.user = userId;
+        }
+
+        const company = await Company.findById(application.company);
+        if (!company) {
+            return res.status(404).json({ message: 'Company not found' });
+        }
+
+        const ownerId = company.owner.toString();
+        const alreadyMember =
+            ownerId === userId.toString() ||
+            company.members.some((m) => m.user.toString() === userId.toString());
+
+        if (!alreadyMember) {
+            const salary = Number(application.offeredSalary?.amount) || 0;
+            let designation = (application.jobCircular && application.jobCircular.role) || 'Employee';
+            const designationNames = new Set((company.designations || []).map((d) => d.name));
+            if (!designationNames.has(designation)) {
+                designation = 'Employee';
+            }
+            const newMember = {
+                user: userId,
+                designation,
+                currentSalary: salary,
+                joinedAt: new Date()
+            };
+            if (salary > 0) {
+                newMember.salaryHistory = [{
+                    amount: salary,
+                    effectiveDate: new Date(),
+                    reason: 'Starting salary (accepted job offer)',
+                    updatedBy: userId
+                }];
+            }
+            company.members.push(newMember);
+            await company.save();
+        }
+
+        await User.findByIdAndUpdate(userId, { company: company._id });
+
+        application.offerLetterStatus = 'accepted';
+        application.offerAcceptedAt = new Date();
+        await application.save();
+
+        res.json({
+            message: 'Welcome aboard! You are now part of the team.',
+            companyId: company._id
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

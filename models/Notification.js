@@ -26,7 +26,8 @@ const notificationSchema = new mongoose.Schema({
       'task_role_completed',   // Notified when your role is marked complete
       'task_ready',
       'task_send_back',
-      'job_application'
+      'job_application',
+      'job_offer'
     ],
     required: true
   },

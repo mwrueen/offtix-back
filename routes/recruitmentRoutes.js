@@ -16,6 +16,8 @@ router.delete('/circulars/:id', recruitmentController.deleteCircular);
 router.get('/circulars/:id/applicants', recruitmentController.getApplicants);
 router.patch('/applications/:id/status', recruitmentController.updateApplicationStatus);
 router.post('/applications/:id/hire', recruitmentController.hireCandidate);
+router.get('/applications/:id/offer-details', recruitmentController.getOfferLetterDetails);
+router.post('/applications/:id/accept-offer', recruitmentController.acceptOfferLetter);
 router.get('/stats', recruitmentController.getCompanyStats);
 
 module.exports = router;
