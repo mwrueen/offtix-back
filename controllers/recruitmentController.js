@@ -389,7 +389,7 @@ exports.updateApplicationStatus = async (req, res) => {
 // @access  Private
 exports.hireCandidate = async (req, res) => {
     try {
-        const { salary, roleDescription } = req.body;
+        const { salary, roleDescription, facilities, policies } = req.body;
         const application = await Application.findById(req.params.id).populate('jobCircular');
 
         if (!application) return res.status(404).json({ message: 'Application not found' });
@@ -407,6 +407,12 @@ exports.hireCandidate = async (req, res) => {
         application.offerLetterStatus = 'pending';
         if (roleDescription != null && typeof roleDescription === 'string') {
             application.hireRoleDescription = roleDescription.slice(0, 100000);
+        }
+        if (facilities != null && typeof facilities === 'string') {
+            application.hireFacilities = facilities.slice(0, 100000);
+        }
+        if (policies != null && typeof policies === 'string') {
+            application.hirePolicies = policies.slice(0, 100000);
         }
 
         await application.save();
