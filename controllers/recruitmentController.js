@@ -258,6 +258,7 @@ exports.getApplicationById = async (req, res) => {
             if (u) {
                 application.user = u._id;
                 await application.save();
+                await application.populate('jobCircular');
             }
         }
         res.json(application);
@@ -378,6 +379,7 @@ exports.updateApplicationStatus = async (req, res) => {
         }
 
         await application.save();
+        await application.populate('jobCircular');
         res.json(application);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -416,6 +418,7 @@ exports.hireCandidate = async (req, res) => {
         }
 
         await application.save();
+        await application.populate('jobCircular');
 
         let notifyUserId = application.user;
         if (!notifyUserId) {
