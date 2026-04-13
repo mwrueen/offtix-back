@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const emitSocketNotification = require('../utils/emitSocketNotification');
+const sendEmail = require('../utils/sendEmail');
 
 function applicantMatchesUser(application, reqUser) {
     if (!application || !reqUser) return false;
@@ -238,6 +239,33 @@ exports.getApplicants = async (req, res) => {
     }
 };
 
+// @desc    Get single application by ID
+// @route   GET /api/recruitment/applications/:id
+// @access  Private
+exports.getApplicationById = async (req, res) => {
+    try {
+        const application = await Application.findById(req.params.id).populate('jobCircular');
+        if (!application) return res.status(404).json({ message: 'Application not found' });
+        
+        // Ensure user has permission
+        if (application.company.toString() !== req.user.company.toString()) {
+            return res.status(403).json({ message: 'Unauthorized access' });
+        }
+
+        // Hydrate linked user if any
+        if (!application.user && application.applicant?.email) {
+            const u = await User.findOne({ email: application.applicant.email.toLowerCase().trim() }).select('_id');
+            if (u) {
+                application.user = u._id;
+                await application.save();
+            }
+        }
+        res.json(application);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Update application status (shortlist/reject/etc)
 // @route   PATCH /api/recruitment/applications/:id/status
 // @access  Private
@@ -288,6 +316,65 @@ exports.updateApplicationStatus = async (req, res) => {
                 scheduledBy: req.user._id,
                 status: 'scheduled'
             });
+
+            try {
+                // Send Notification and Email
+                const applicantEmail = application.applicant?.email;
+                const applicantName = application.applicant?.name || 'Applicant';
+                const companyInfo = application.company ? await Company.findById(application.company).select('name') : null;
+                const companyName = companyInfo?.name || 'A company';
+                const jobTitle = application.jobCircular?.title || 'the position';
+                
+                // Formatted date
+                const dateObj = new Date(interviewDate);
+                const formattedDate = !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', {
+                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+                }) : String(interviewDate);
+                
+                // Resolve user id from email if missing
+                let notifyUserId = application.user;
+                if (!notifyUserId && applicantEmail) {
+                    const u = await User.findOne({ email: applicantEmail }).select('_id').lean();
+                    notifyUserId = u?._id;
+                }
+
+                // Notification if user is registered
+                if (notifyUserId) {
+                    const notif = await Notification.create({
+                        user: notifyUserId,
+                        company: application.company,
+                        type: 'job_application',
+                        title: 'Interview Scheduled',
+                        message: `Your interview for ${jobTitle} at ${companyName} is scheduled for ${formattedDate}.`,
+                        relatedId: application._id,
+                        relatedModel: 'Application'
+                    });
+                    emitSocketNotification(req, notifyUserId, notif);
+                }
+
+                // Send Email
+                if (applicantEmail) {
+                    await sendEmail({
+                        email: applicantEmail,
+                        subject: `Interview Invitation: ${jobTitle} @ ${companyName}`,
+                        message: `Hi ${applicantName},\n\nYou have been invited to an interview for ${jobTitle} at ${companyName}.\n\nDate & Time: ${formattedDate}\nDetails/Link: ${notes || 'N/A'}\n\nPlease be prepared.\n\nBest,\n${companyName}`,
+                        html: `<div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+                            <h2 style="color: #4f46e5;">Interview Invitation</h2>
+                            <p>Hi <strong>${applicantName}</strong>,</p>
+                            <p>You have been invited to an interview for the <strong>${jobTitle}</strong> position at <strong>${companyName}</strong>.</p>
+                            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
+                                <p style="margin: 0 0 10px 0;"><strong>Date & Time:</strong><br/>${formattedDate}</p>
+                                <p style="margin: 0;"><strong>Additional Details / Meeting Link:</strong><br/>${notes ? notes.replace(/\n/g, '<br/>') : 'Please wait for further details or contact the employer.'}</p>
+                            </div>
+                            <p>Looking forward to speaking with you!</p>
+                            <p style="color: #64748b; font-size: 14px; margin-top: 30px;">Best regards,<br/>The ${companyName} Hiring Team</p>
+                        </div>`
+                    });
+                }
+            } catch (err) {
+                console.error("Error sending interview notification:", err);
+            }
         }
 
         await application.save();
