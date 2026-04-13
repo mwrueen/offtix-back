@@ -14,7 +14,7 @@ exports.signup = async (req, res) => {
     }
 
     const { name, email, password } = req.body;
-    
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
@@ -24,14 +24,15 @@ exports.signup = async (req, res) => {
     await user.save();
 
     const token = generateToken(user._id);
-    
+
     res.status(201).json({
       token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        profile: user.profile
       }
     });
   } catch (error) {
@@ -47,21 +48,22 @@ exports.signin = async (req, res) => {
     }
 
     const { email, password } = req.body;
-    
+
     const user = await User.findOne({ email });
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = generateToken(user._id);
-    
+
     res.json({
       token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        profile: user.profile
       }
     });
   } catch (error) {
@@ -77,7 +79,7 @@ exports.socialLoginSuccess = async (req, res) => {
     }
 
     const token = generateToken(req.user._id);
-    
+
     // Redirect to frontend with token
     res.redirect(`${process.env.CLIENT_URL}/auth/callback?token=${token}`);
   } catch (error) {
