@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
+const syncPendingInvitationNotifications = require('../utils/syncPendingInvitationNotifications');
 
 const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -22,6 +23,7 @@ exports.signup = async (req, res) => {
 
     const user = new User({ name, email, password });
     await user.save();
+    await syncPendingInvitationNotifications(user);
 
     const token = generateToken(user._id);
 
@@ -53,6 +55,8 @@ exports.signin = async (req, res) => {
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    await syncPendingInvitationNotifications(user);
 
     const token = generateToken(user._id);
 

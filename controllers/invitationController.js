@@ -8,7 +8,14 @@ const emitSocketNotification = require('../utils/emitSocketNotification');
 // Send invitation to join company
 exports.sendInvitation = async (req, res) => {
   try {
-    const { email, designation, salary } = req.body;
+    const {
+      email,
+      designation,
+      salary,
+      jobDescription = '',
+      facilities = '',
+      termsAndPolicies = ''
+    } = req.body;
     const companyId = req.params.companyId;
 
     // Validate inputs
@@ -67,6 +74,9 @@ exports.sendInvitation = async (req, res) => {
       company: companyId,
       designation,
       salary: salary || 0,
+      jobDescription: String(jobDescription || '').trim().slice(0, 20000),
+      facilities: String(facilities || '').trim().slice(0, 20000),
+      termsAndPolicies: String(termsAndPolicies || '').trim().slice(0, 20000),
       invitedBy: req.user._id,
       token,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
@@ -119,6 +129,29 @@ exports.getCompanyInvitations = async (req, res) => {
   }
 };
 
+// Single invitation for invitee (details page)
+exports.getInvitationDetails = async (req, res) => {
+  try {
+    const { invitationId } = req.params;
+    const invitation = await Invitation.findById(invitationId)
+      .populate('company', 'name description currency industry website logo email phone address city country')
+      .populate('invitedBy', 'name email');
+
+    if (!invitation) {
+      return res.status(404).json({ message: 'Invitation not found' });
+    }
+
+    if (invitation.email !== req.user.email.toLowerCase()) {
+      return res.status(403).json({ message: 'You do not have access to this invitation' });
+    }
+
+    res.json(invitation);
+  } catch (error) {
+    console.error('Error fetching invitation details:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Get user's pending invitations
 exports.getUserInvitations = async (req, res) => {
   try {
@@ -136,7 +169,7 @@ exports.getUserInvitations = async (req, res) => {
     if (companyId) filter.company = companyId;
 
     const invitations = await Invitation.find(filter)
-      .populate('company', 'name description currency')
+      .populate('company', 'name description currency logo')
       .populate('invitedBy', 'name email')
       .sort({ createdAt: -1 });
 

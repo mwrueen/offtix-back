@@ -2,6 +2,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const FacebookStrategy = require('passport-facebook').Strategy;
 const User = require('../models/User');
+const syncPendingInvitationNotifications = require('../utils/syncPendingInvitationNotifications');
 
 // Serialize user for session
 passport.serializeUser((user, done) => {
@@ -53,6 +54,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
       });
 
       await user.save();
+      await syncPendingInvitationNotifications(user);
       done(null, user);
     } catch (error) {
       done(error, null);
@@ -101,6 +103,7 @@ if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_ID !== 'your-faceboo
       });
 
       await user.save();
+      await syncPendingInvitationNotifications(user);
       done(null, user);
     } catch (error) {
       done(error, null);

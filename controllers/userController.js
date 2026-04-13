@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
+const syncPendingInvitationNotifications = require('../utils/syncPendingInvitationNotifications');
 const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
@@ -72,6 +73,7 @@ exports.createUser = async (req, res) => {
 
     const user = new User(req.body);
     await user.save();
+    await syncPendingInvitationNotifications(user);
     res.status(201).json(user);
   } catch (error) {
     res.status(400).json({ error: error.message });

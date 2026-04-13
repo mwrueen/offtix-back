@@ -1,11 +1,24 @@
+const { getIo } = require('./socketRegistry');
+
+function resolveIo(req) {
+    try {
+        if (req?.app) {
+            const io = req.app.get('io');
+            if (io) return io;
+        }
+    } catch (_) { /* ignore */ }
+    return getIo();
+}
+
 /**
  * Push a lightweight payload to a user's socket room so the client can
  * refresh unread counts and show a toast (see SocketContext: notification:new).
+ * `req` may be null; IO is taken from the socket registry when `req.app` is missing.
  */
 function emitSocketNotification(req, userId, notificationDoc) {
-    if (!userId || !req?.app) return;
+    if (!userId) return;
     try {
-        const io = req.app.get('io');
+        const io = resolveIo(req);
         if (!io) return;
         const uid = userId._id ? userId._id.toString() : String(userId);
         const doc = notificationDoc && typeof notificationDoc.toObject === 'function'

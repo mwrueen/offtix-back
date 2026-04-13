@@ -20,6 +20,21 @@ const invitationSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  jobDescription: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  facilities: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  termsAndPolicies: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   invitedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

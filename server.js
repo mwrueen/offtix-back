@@ -43,8 +43,9 @@ const io = new Server(server, {
   }
 });
 
-// Make io accessible to routes
+// Make io accessible to routes and to non-HTTP code (e.g. Passport) via registry
 app.set('io', io);
+require('./utils/socketRegistry').setIo(io);
 
 // Middleware
 app.use(cors({
@@ -118,7 +119,7 @@ io.use((socket, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.userId = decoded.userId;
+    socket.userId = String(decoded.userId);
     socket.user = decoded;
     next();
   } catch (err) {

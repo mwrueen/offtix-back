@@ -15,6 +15,9 @@ router.get('/company/:companyId', invitationController.getCompanyInvitations);
 // Get user's pending invitations
 router.get('/my-invitations', invitationController.getUserInvitations);
 
+// Invitee: full invitation details (job description, terms, company summary, etc.)
+router.get('/invitation/:invitationId', invitationController.getInvitationDetails);
+
 // Accept invitation
 router.post('/:invitationId/accept', invitationController.acceptInvitation);
 
