@@ -5,7 +5,18 @@ const User = require('../models/User');
 const TaskRole = require('../models/TaskRole');
 const Notification = require('../models/Notification');
 const TaskUserDuration = require('../models/TaskUserDuration');
+const Company = require('../models/Company');
 const { validationResult } = require('express-validator');
+
+// Helper to check designation-based permissions
+const hasPermission = (company, userId, permissionName) => {
+  if (!company || !userId) return false;
+  if (company.owner.toString() === userId.toString()) return true;
+  const member = company.members.find(m => m.user.toString() === userId.toString());
+  if (!member) return false;
+  const designation = company.designations.find(d => d.name === member.designation);
+  return designation?.permissions?.[permissionName] === true;
+};
 
 exports.getTasks = async (req, res) => {
   try {
@@ -120,12 +131,20 @@ exports.createTask = async (req, res) => {
     }
 
     const user = await User.findById(req.user._id).populate('company');
-    const isSuperAdmin = user.role === 'superadmin';
-    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+    const isSuperAdmin = user?.role === 'superadmin';
+    // Resolve company permissions if applicable
+    let hasCompanyPermission = false;
+    if (project.company) {
+      const company = await Company.findById(project.company);
+      if (company) {
+        hasCompanyPermission = hasPermission(company, req.user._id, 'createTask');
+      }
+    }
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
-      isSuperAdmin || isCompanyCreator;
+    const hasAccess = isSuperAdmin || 
+      project.owner.equals(req.user._id) ||
+      hasCompanyPermission ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -189,12 +208,20 @@ exports.updateTask = async (req, res) => {
     // Verify project access
     const project = await Project.findById(task.project);
     const user = await User.findById(req.user._id).populate('company');
-    const isSuperAdmin = user.role === 'superadmin';
-    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+    const isSuperAdmin = user?.role === 'superadmin';
+    // Resolve company permissions if applicable
+    let hasCompanyPermission = false;
+    if (project.company) {
+      const company = await Company.findById(project.company);
+      if (company) {
+        hasCompanyPermission = hasPermission(company, req.user._id, 'editTask');
+      }
+    }
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
-      isSuperAdmin || isCompanyCreator;
+    const hasAccess = isSuperAdmin || 
+      project.owner.equals(req.user._id) ||
+      hasCompanyPermission ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -253,12 +280,20 @@ exports.deleteTask = async (req, res) => {
     // Verify project access
     const project = await Project.findById(task.project);
     const user = await User.findById(req.user._id).populate('company');
-    const isSuperAdmin = user.role === 'superadmin';
-    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+    const isSuperAdmin = user?.role === 'superadmin';
+    // Resolve company permissions if applicable
+    let hasCompanyPermission = false;
+    if (project.company) {
+      const company = await Company.findById(project.company);
+      if (company) {
+        hasCompanyPermission = hasPermission(company, req.user._id, 'deleteTask');
+      }
+    }
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
-      isSuperAdmin || isCompanyCreator;
+    const hasAccess = isSuperAdmin || 
+      project.owner.equals(req.user._id) ||
+      hasCompanyPermission ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -283,12 +318,21 @@ exports.reorderTasks = async (req, res) => {
     }
 
     const user = await User.findById(req.user._id).populate('company');
-    const isSuperAdmin = user.role === 'superadmin';
-    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+    const isSuperAdmin = user?.role === 'superadmin';
+    
+    // Resolve company permissions if applicable
+    let hasCompanyPermission = false;
+    if (project.company) {
+      const company = await Company.findById(project.company);
+      if (company) {
+        hasCompanyPermission = hasPermission(company, req.user._id, 'editTask');
+      }
+    }
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
-      isSuperAdmin || isCompanyCreator;
+    const hasAccess = isSuperAdmin || 
+      project.owner.equals(req.user._id) ||
+      hasCompanyPermission ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -676,12 +720,21 @@ exports.bulkScheduleTasks = async (req, res) => {
     }
 
     const user = await User.findById(req.user._id).populate('company');
-    const isSuperAdmin = user.role === 'superadmin';
-    const isCompanyCreator = project.company && user.company && user.company.owner && user.company.owner.toString() === req.user._id;
+    const isSuperAdmin = user?.role === 'superadmin';
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString()) ||
-      isSuperAdmin || isCompanyCreator;
+    // Resolve company permissions if applicable
+    let hasCompanyPermission = false;
+    if (project.company) {
+      const company = await Company.findById(project.company);
+      if (company) {
+        hasCompanyPermission = hasPermission(company, req.user._id, 'editTask');
+      }
+    }
+
+    const hasAccess = isSuperAdmin || 
+      project.owner.equals(req.user._id) ||
+      hasCompanyPermission ||
+      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });

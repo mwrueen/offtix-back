@@ -4,6 +4,19 @@ const User = require('../models/User');
 const Task = require('../models/Task');
 const { validationResult } = require('express-validator');
 
+// Helper to check designation-based permissions
+const hasPermission = (company, userId, permissionName) => {
+  if (!company || !userId) return false;
+  // Company owner always has all permissions
+  if (company.owner.toString() === userId.toString()) return true;
+  
+  const member = company.members.find(m => m.user.toString() === userId.toString());
+  if (!member) return false;
+  
+  const designation = company.designations.find(d => d.name === member.designation);
+  return designation?.permissions?.[permissionName] === true;
+};
+
 exports.getProjects = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -92,7 +105,9 @@ exports.createProject = async (req, res) => {
       const isSuperAdmin = user.role === 'superadmin';
 
       // Check permissions to create projects in this company
-      if (!isSuperAdmin && !isOwner && (!userMember || !userMember.canCreateProjects)) {
+      const canCreate = isSuperAdmin || isOwner || hasPermission(company, req.user._id, 'createProject');
+      
+      if (!canCreate) {
         return res.status(403).json({ error: 'You do not have permission to create projects in this company' });
       }
 
@@ -102,8 +117,29 @@ exports.createProject = async (req, res) => {
       assignedCompany = null;
     }
 
+    const projectData = { ...req.body };
+
+    // Function to parse stringified JSON fields from FormData
+    const parseJSONField = (field) => {
+      if (typeof field === 'string' && (field.startsWith('{') || field.startsWith('['))) {
+        try { return JSON.parse(field); } catch (e) { return field; }
+      }
+      return field;
+    };
+
+    // Fields that might be JSON stringified in FormData
+    ['budget', 'actualCost', 'tags', 'members', 'attachments', 'milestones', 'risks', 'dependencies', 'progress', 'customFields', 'settings'].forEach(field => {
+      if (projectData[field]) {
+        projectData[field] = parseJSONField(projectData[field]);
+      }
+    });
+
+    if (req.file) {
+      projectData.logo = `/uploads/project-logos/${req.file.filename}`;
+    }
+
     const project = new Project({
-      ...req.body,
+      ...projectData,
       owner: req.user._id,
       company: assignedCompany
     });
@@ -205,10 +241,7 @@ exports.updateProject = async (req, res) => {
     else if (project.company) {
       const company = await Company.findById(project.company._id);
       if (company) {
-        const isCompanyOwner = company.owner.toString() === req.user._id.toString();
-        const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-
-        hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
+        hasAccess = hasPermission(company, req.user._id, 'editProject');
       }
     }
 
@@ -216,7 +249,28 @@ exports.updateProject = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    Object.assign(project, req.body);
+    const projectData = { ...req.body };
+
+    // Function to parse stringified JSON fields from FormData
+    const parseJSONField = (field) => {
+      if (typeof field === 'string' && (field.startsWith('{') || field.startsWith('['))) {
+        try { return JSON.parse(field); } catch (e) { return field; }
+      }
+      return field;
+    };
+
+    // Fields that might be JSON stringified in FormData
+    ['budget', 'actualCost', 'tags', 'members', 'attachments', 'milestones', 'risks', 'dependencies', 'progress', 'customFields', 'settings'].forEach(field => {
+      if (projectData[field]) {
+        projectData[field] = parseJSONField(projectData[field]);
+      }
+    });
+
+    if (req.file) {
+      projectData.logo = `/uploads/project-logos/${req.file.filename}`;
+    }
+
+    Object.assign(project, projectData);
     await project.save();
     await project.populate('owner', 'name email profile');
     await project.populate('members.user', 'name email profile');
@@ -259,9 +313,7 @@ exports.addTeamMember = async (req, res) => {
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);
       if (company) {
-        const isCompanyOwner = company.owner.toString() === req.user._id.toString();
-        const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-        hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
+        hasAccess = hasPermission(company, req.user._id, 'editProject');
       }
     }
 
@@ -321,9 +373,7 @@ exports.removeTeamMember = async (req, res) => {
     if (!hasAccess && project.company) {
       const company = await Company.findById(project.company);
       if (company) {
-        const isCompanyOwner = company.owner.toString() === req.user._id.toString();
-        const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-        hasAccess = isCompanyOwner || (userMember && userMember.canEditProjects);
+        hasAccess = hasPermission(company, req.user._id, 'editProject');
       }
     }
 
@@ -367,11 +417,7 @@ exports.deleteProject = async (req, res) => {
       // Company mode - verify project belongs to selected company and user has permissions
       if (project.company && project.company._id.toString() === companyId) {
         const company = await Company.findById(companyId);
-        const isOwner = company.owner.toString() === req.user._id.toString();
-        const userMember = company.members.find(m => m.user.toString() === req.user._id.toString());
-
-        hasAccess = isSuperAdmin || isOwner ||
-          (userMember && (userMember.canDeleteProjects || project.owner.equals(req.user._id)));
+        hasAccess = isSuperAdmin || hasPermission(company, req.user._id, 'deleteProject') || project.owner.equals(req.user._id);
       }
     } else {
       // Personal mode - check if project is personal and user owns it

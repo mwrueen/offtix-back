@@ -33,12 +33,41 @@ const upload = multer({
   }
 });
 
+// Configure multer for project logos
+const logoStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../uploads/project-logos');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'logo-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: {
+    fileSize: 2 * 1024 * 1024 // 2MB limit for logos
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for logos'), false);
+    }
+  }
+});
+
 router.use(authenticate);
 
 router.get('/', projectController.getProjects);
-router.post('/', requirePermission('createProject'), validateProject, projectController.createProject);
+router.post('/', logoUpload.single('logo'), requirePermission('createProject'), validateProject, projectController.createProject);
 router.get('/:id', projectController.getProjectById);
-router.put('/:id', projectController.updateProject);
+router.put('/:id', logoUpload.single('logo'), projectController.updateProject);
 router.delete('/:id', projectController.deleteProject);
 
 // Team member management routes

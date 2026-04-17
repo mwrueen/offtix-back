@@ -60,6 +60,10 @@ const projectSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company'
   },
+  logo: {
+    type: String,
+    default: null
+  },
   // Budget and Cost Tracking
   budget: {
     amount: { type: Number, default: 0 },
