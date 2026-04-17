@@ -23,7 +23,8 @@ exports.getProjects = async (req, res) => {
         return res.status(404).json({ error: 'Company not found' });
       }
 
-      const hasCompanyAccess = company.owner.toString() === req.user._id.toString() ||
+      const hasCompanyAccess = req.user.role === 'superadmin' ||
+        company.owner.toString() === req.user._id.toString() ||
         company.members.some(member => member.user.toString() === req.user._id.toString());
 
       if (!hasCompanyAccess) {
