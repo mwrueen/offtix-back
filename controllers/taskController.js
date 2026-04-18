@@ -73,6 +73,8 @@ exports.getTasks = async (req, res) => {
       .populate('parent', 'title')
       .populate('sprint', 'name sprintNumber')
       .populate('phase', 'name')
+      .populate('requirement', 'title')
+      .populate('meeting', 'title')
       .populate('roleAssignments.role', 'name color icon order')
       .populate('roleAssignments.assignees', 'name email profile')
       .populate('roleAssignments.handoff.handoffBy', 'name email')
@@ -369,6 +371,8 @@ const populateTask = async (task) => {
   await task.populate('parent', 'title');
   await task.populate('sprint', 'name sprintNumber');
   await task.populate('phase', 'name');
+  await task.populate('requirement', 'title');
+  await task.populate('meeting', 'title');
   await task.populate('roleAssignments.role', 'name color icon order');
   await task.populate('roleAssignments.assignees', 'name email profile');
   await task.populate('roleAssignments.handoff.handoffBy', 'name email');

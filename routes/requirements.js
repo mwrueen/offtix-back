@@ -40,4 +40,7 @@ router.post('/:requirementId/comments', requirementController.addComment);
 router.post('/:requirementId/attachments', upload.single('file'), requirementController.uploadAttachment);
 router.delete('/:requirementId/attachments/:attachmentId', requirementController.deleteAttachment);
 
+// Convert to task
+router.post('/:requirementId/convert-to-task', requirementController.convertToTask);
+
 module.exports = router;

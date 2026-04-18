@@ -25,6 +25,10 @@ const requirementSchema = new mongoose.Schema({
     enum: ['draft', 'approved', 'in-progress', 'completed', 'rejected'],
     default: 'draft'
   },
+  convertedToTask: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Task'
+  },
   project: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Project',

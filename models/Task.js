@@ -193,6 +193,14 @@ const taskSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  requirement: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Requirement'
+  },
+  meeting: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MeetingNote'
   }
 }, {
   timestamps: true

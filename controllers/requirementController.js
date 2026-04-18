@@ -23,6 +23,7 @@ exports.getRequirements = async (req, res) => {
       .populate('createdBy', 'name email')
       .populate('assignedTo', 'name email')
       .populate('comments.author', 'name email')
+      .populate('convertedToTask', 'title')
       .sort({ createdAt: -1 });
     
     res.json(requirements);
@@ -118,8 +119,72 @@ exports.deleteRequirement = async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    if (requirement.convertedToTask) {
+      return res.status(400).json({ error: 'Cannot delete a requirement that has been converted to a task' });
+    }
+
     await Requirement.findByIdAndDelete(requirementId);
     res.json({ message: 'Requirement deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.convertToTask = async (req, res) => {
+  try {
+    const { projectId, requirementId } = req.params;
+    
+    const requirement = await Requirement.findOne({ _id: requirementId, project: projectId });
+    if (!requirement) {
+      return res.status(404).json({ error: 'Requirement not found' });
+    }
+
+    if (requirement.convertedToTask) {
+      return res.status(400).json({ error: 'Requirement already converted to a task' });
+    }
+
+    // Verify project access
+    const project = await Project.findById(projectId);
+    const hasAccess = project.owner.equals(req.user._id) || 
+                     project.members.some(member => {
+                       const memberId = member.user?._id || member.user;
+                       return memberId && memberId.toString() === req.user._id.toString();
+                     });
+    
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Find a default status for the project
+    const TaskStatus = require('../models/TaskStatus');
+    const Task = require('../models/Task');
+    let status = await TaskStatus.findOne({ project: projectId }).sort({ order: 1 });
+    
+    // Map requirement priority to task priority
+    const priorityMap = {
+      'low': 'low',
+      'medium': 'medium',
+      'high': 'high',
+      'critical': 'urgent'
+    };
+
+    const task = new Task({
+      title: requirement.title,
+      description: requirement.description,
+      project: projectId,
+      requirement: requirementId,
+      status: status ? status._id : undefined,
+      createdBy: req.user._id,
+      priority: priorityMap[requirement.priority] || 'medium',
+      assignees: requirement.assignedTo ? [requirement.assignedTo] : []
+    });
+
+    await task.save();
+    
+    requirement.convertedToTask = task._id;
+    await requirement.save();
+
+    res.status(201).json({ task, requirement });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
