@@ -11,8 +11,15 @@ exports.getTaskStatuses = async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    const hasAccess = project.owner.equals(req.user._id) ||
-      project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
+let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -48,8 +55,17 @@ exports.createTaskStatus = async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    if (!project.owner.equals(req.user._id)) {
-      return res.status(403).json({ error: 'Only project owner can manage task statuses' });
+let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     // Get the highest order number and increment

@@ -12,8 +12,15 @@ exports.getRequirements = async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
     
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -47,8 +54,15 @@ exports.createRequirement = async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
     
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -82,8 +96,15 @@ exports.updateRequirement = async (req, res) => {
 
     // Verify project access
     const project = await Project.findById(projectId);
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
     
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -112,8 +133,15 @@ exports.deleteRequirement = async (req, res) => {
 
     // Verify project access
     const project = await Project.findById(projectId);
-    const hasAccess = project.owner.equals(req.user._id) || 
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
     
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -203,8 +231,15 @@ exports.addComment = async (req, res) => {
 
     // Verify project access
     const project = await Project.findById(projectId);
-    const hasAccess = project.owner.equals(req.user._id) ||
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -237,8 +272,15 @@ exports.uploadAttachment = async (req, res) => {
 
     // Verify project access
     const project = await Project.findById(projectId);
-    const hasAccess = project.owner.equals(req.user._id) ||
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
@@ -281,8 +323,15 @@ exports.deleteAttachment = async (req, res) => {
 
     // Verify project access
     const project = await Project.findById(projectId);
-    const hasAccess = project.owner.equals(req.user._id) ||
-                     project.members.some(member => member.equals(req.user._id));
+    let hasAccess = false;
+    const user = await require('../models/User').findById(req.user._id);
+    if (user && user.role === 'superadmin') hasAccess = true;
+    else if (project.owner.equals(req.user._id)) hasAccess = true;
+    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
+    else if (project.company) {
+      const company = await require('../models/Company').findById(project.company);
+      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
