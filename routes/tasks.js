@@ -10,7 +10,34 @@ router.use(authenticate);
 
 router.get('/', taskController.getTasks);
 router.get('/:taskId', taskController.getTaskById);
-router.post('/', requirePermission('createTask'), validateTask, taskController.createTask);
+const checkCreateTaskPermission = async (req, res, next) => {
+    if (req.body.parent) {
+        try {
+            const Task = require('../models/Task');
+            const parentTask = await Task.findById(req.body.parent);
+            if (parentTask) {
+                const userId = req.user._id.toString();
+                const isAssigned = 
+                    (parentTask.assignees && parentTask.assignees.some(a => a && a.toString() === userId)) ||
+                    (parentTask.roleAssignments && parentTask.roleAssignments.some(ra => ra.assignees && ra.assignees.some(a => a && a.toString() === userId))) ||
+                    (parentTask.sequentialAssignees && parentTask.sequentialAssignees.some(sa => sa && sa.user && sa.user.toString() === userId));
+                
+                if (isAssigned) {
+                    return next();
+                } else {
+                    return res.status(403).json({ error: 'You are not assigned to the parent task, cannot create subtask via this route.' });
+                }
+            } else {
+                return res.status(404).json({ error: 'Parent task not found for permission check.' });
+            }
+        } catch (e) {
+            return res.status(500).json({ error: 'Internal error checking parent task permission: ' + e.message });
+        }
+    }
+    return requirePermission('createTask')(req, res, next);
+};
+
+router.post('/', checkCreateTaskPermission, validateTask, taskController.createTask);
 router.post('/reorder', requirePermission('editTask'), taskController.reorderTasks);
 router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);
 router.post('/bulk-assign-member', requirePermission('editTask'), taskController.bulkAssignMemberToAllTasks);

@@ -21,11 +21,22 @@ exports.getMyTasks = async (req, res) => {
     const allowedProjectIdSet = new Set(allowedProjectIds.map(id => id.toString()));
 
     // Find all tasks where user is in sequentialAssignees, roleAssignments OR regular assignees
+    // Only fetch main tasks (where parent is not set)
     const tasks = await Task.find({
-      $or: [
-        { 'sequentialAssignees.user': userId },
-        { 'roleAssignments.assignees': userId },
-        { assignees: userId }
+      $and: [
+        {
+          $or: [
+            { 'sequentialAssignees.user': userId },
+            { 'roleAssignments.assignees': userId },
+            { assignees: userId }
+          ]
+        },
+        {
+          $or: [
+            { parent: { $exists: false } },
+            { parent: null }
+          ]
+        }
       ],
       project: { $in: allowedProjectIds }
     })

@@ -121,7 +121,10 @@ exports.createTask = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        errors: errors.array(),
+        error: `Validation field failed: ${errors.array()[0].msg}`
+      });
     }
 
     const { projectId } = req.params;
@@ -143,13 +146,26 @@ exports.createTask = async (req, res) => {
       }
     }
 
+    let isParentAssignee = false;
+    if (req.body.parent) {
+      const parentTask = await Task.findById(req.body.parent);
+      if (parentTask) {
+        const userIdStr = req.user._id.toString();
+        isParentAssignee = 
+          (parentTask.assignees && parentTask.assignees.some(a => a && a.toString() === userIdStr)) ||
+          (parentTask.roleAssignments && parentTask.roleAssignments.some(ra => ra.assignees && ra.assignees.some(a => a && a.toString() === userIdStr))) ||
+          (parentTask.sequentialAssignees && parentTask.sequentialAssignees.some(sa => sa && sa.user && sa.user.toString() === userIdStr));
+      }
+    }
+
     const hasAccess = isSuperAdmin || 
       project.owner.equals(req.user._id) ||
       hasCompanyPermission ||
+      isParentAssignee ||
       project.members.some(member => (member.user?._id || member.user).toString() === req.user._id.toString());
 
     if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Access denied in taskController: Not a superadmin, project owner, or assigned member.' });
     }
 
     // Sanitize request body - convert empty strings to undefined for optional fields
