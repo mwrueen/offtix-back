@@ -229,15 +229,9 @@ exports.getMyTaskDetails = async (req, res) => {
     }
 
     const taskCompany = task.project?.company ? task.project.company.toString() : null;
-    if (companyId) {
-      if (taskCompany !== companyId.toString()) {
-        return res.status(404).json({ error: 'Task not found' });
-      }
-    } else {
-      if (taskCompany) {
-        return res.status(404).json({ error: 'Task not found' });
-      }
-    }
+    // We do not enforce strict companyId matching here anymore.
+    // If the user navigated from a notification or global task list without a company context,
+    // they should still load the task. Authorization is handled below by checking if they are assigned.
 
     // Check if user has any other task in progress
     const tasksInProgress = await Task.find({
@@ -249,6 +243,13 @@ exports.getMyTaskDetails = async (req, res) => {
     });
 
     const hasOtherTaskInProgress = tasksInProgress.length > 0;
+
+    const subtasks = await Task.find({ parent: taskId })
+      .populate('status', 'name slug color isDefault isCompleted')
+      .populate('roleAssignments.role', 'name icon color')
+      .populate('roleAssignments.assignees', 'name email profile projectRole')
+      .populate('assignees', 'name email profile')
+      .sort('order');
 
     // Check if user is assigned to this task (sequential, role, or regular)
     let isAssigned = false;
@@ -308,7 +309,8 @@ exports.getMyTaskDetails = async (req, res) => {
             canComplete,
             canSendBack
           },
-          activity: activities
+          activity: activities,
+          subtasks
         });
       }
     }
@@ -430,7 +432,8 @@ exports.getMyTaskDetails = async (req, res) => {
             canSetDuration,
             canSendBack
           },
-          activity: activities
+          activity: activities,
+          subtasks
         });
       }
     }
@@ -468,7 +471,8 @@ exports.getMyTaskDetails = async (req, res) => {
             canComplete: false,
             canSetDuration: false
           },
-          activity: activities
+          activity: activities,
+          subtasks
         });
       }
     }

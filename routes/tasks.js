@@ -9,6 +9,7 @@ const uploadHandoff = require('../middleware/uploadHandoff');
 router.use(authenticate);
 
 router.get('/', taskController.getTasks);
+router.get('/:taskId', taskController.getTaskById);
 router.post('/', requirePermission('createTask'), validateTask, taskController.createTask);
 router.post('/reorder', requirePermission('editTask'), taskController.reorderTasks);
 router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);

@@ -1133,3 +1133,38 @@ exports.bulkAssignMemberToAllTasks = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+exports.getTaskById = async (req, res) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.taskId, project: req.params.projectId })
+      .populate('status', 'name slug color isDefault isCompleted')
+      .populate('sprint phase')
+      .populate('parent', 'title')
+      .populate('assignees', 'name email profile')
+      .populate('createdBy', 'name email')
+      .populate('requirement')
+      .populate('meeting')
+      .populate({
+        path: 'roleAssignments.role',
+        select: 'name icon color'
+      })
+      .populate({
+        path: 'roleAssignments.assignees',
+        select: 'name email profile projectRole'
+      });
+      
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    
+    const subtasks = await Task.find({ parent: task._id })
+      .populate('status', 'name slug color isDefault isCompleted')
+      .populate('roleAssignments.role', 'name icon color')
+      .populate('roleAssignments.assignees', 'name email profile projectRole')
+      .populate('assignees', 'name email profile')
+      .sort('order');
+      
+    const taskObj = task.toObject();
+    taskObj.subtasks = subtasks;
+    res.json(taskObj);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
