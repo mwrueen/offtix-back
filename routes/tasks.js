@@ -9,6 +9,7 @@ const uploadHandoff = require('../middleware/uploadHandoff');
 router.use(authenticate);
 
 router.get('/', taskController.getTasks);
+router.get('/bulk-durations', taskController.getBulkUserDurations);
 router.get('/:taskId', taskController.getTaskById);
 const checkCreateTaskPermission = async (req, res, next) => {
     if (req.body.parent) {
@@ -42,7 +43,7 @@ router.post('/reorder', requirePermission('editTask'), taskController.reorderTas
 router.post('/bulk-schedule', requirePermission('editTask'), taskController.bulkScheduleTasks);
 router.post('/bulk-assign-member', requirePermission('editTask'), taskController.bulkAssignMemberToAllTasks);
 router.post('/bulk-update-role-durations', requirePermission('editTask'), taskController.bulkUpdateRoleDurations);
-router.get('/bulk-durations', taskController.getBulkUserDurations);
+
 router.put('/:taskId', requirePermission('editTask'), validateTask, taskController.updateTask);
 router.delete('/:taskId', requirePermission('deleteTask'), taskController.deleteTask);
 

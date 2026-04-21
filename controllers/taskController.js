@@ -6,6 +6,7 @@ const TaskRole = require('../models/TaskRole');
 const Notification = require('../models/Notification');
 const TaskUserDuration = require('../models/TaskUserDuration');
 const Company = require('../models/Company');
+const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
 
 // Helper to check designation-based permissions
@@ -881,37 +882,51 @@ exports.getBulkUserDurations = async (req, res) => {
     const { projectId } = req.params;
     const { userId, roleId } = req.query;
 
-    if (!userId || !roleId) {
-      return res.status(400).json({ error: 'userId and roleId are required' });
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
     }
 
     // Get all tasks for the project
     const tasks = await Task.find({ project: projectId }).select('_id roleAssignments').lean();
 
-    // Build map: roleAssignmentId -> taskId for assignments matching the requested role
     const raToTask = {};
+    const validIds = [];
+
     tasks.forEach(task => {
+      const taskIdStr = task._id.toString();
       task.roleAssignments?.forEach(ra => {
         const raRoleId = ra.role?.toString() || '';
-        if (raRoleId === roleId) {
-          raToTask[ra._id.toString()] = task._id.toString();
+        if (!roleId || raRoleId === roleId) {
+          const raIdStr = ra._id.toString();
+          raToTask[raIdStr] = taskIdStr;
+          if (mongoose.Types.ObjectId.isValid(raIdStr)) {
+            validIds.push(new mongoose.Types.ObjectId(raIdStr));
+          }
         }
       });
+      // Also map the task level itself
+      raToTask[taskIdStr] = taskIdStr;
+      if (mongoose.Types.ObjectId.isValid(taskIdStr)) {
+        validIds.push(new mongoose.Types.ObjectId(taskIdStr));
+      }
     });
 
-    const mongoose = require('mongoose');
-    const raIds = Object.keys(raToTask).map(id => new mongoose.Types.ObjectId(id));
-
-    // Fetch TaskUserDuration records matching any of those role assignments + user
+    // Fetch TaskUserDuration records matching the role assignments (or tasks) + user
     const durations = await TaskUserDuration.find({
-      taskStep: { $in: raIds },
+      $or: [
+        { taskStep: { $in: validIds } },
+        { task: { $in: tasks.map(t => t._id) }, taskStep: null }
+      ],
       user: userId
     }).lean();
 
     // Build result map: taskId -> durationMinutes
     const result = {};
     durations.forEach(d => {
-      const taskId = raToTask[d.taskStep?.toString()];
+      let taskId = d.task?.toString();
+      if (!taskId && d.taskStep) {
+        taskId = raToTask[d.taskStep.toString()];
+      }
       if (taskId) {
         result[taskId] = (result[taskId] || 0) + d.durationMinutes;
       }
