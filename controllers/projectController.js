@@ -1424,76 +1424,59 @@ exports.getProjectCosts = async (req, res) => {
       .populate('assignees', 'name email')
       .populate('status', 'name color');
 
+    // Get all logged durations for these tasks
+    const taskIds = tasks.map(t => t._id);
+    const TaskUserDuration = require('../models/TaskUserDuration');
+    const logs = await TaskUserDuration.find({ task: { $in: taskIds } });
+    const taskLogsMap = {};
+    logs.forEach(log => {
+      const tid = log.task.toString();
+      if (!taskLogsMap[tid]) taskLogsMap[tid] = [];
+      taskLogsMap[tid].push(log);
+    });
+
     // Calculate costs per task
     const taskCosts = tasks.map(task => {
       let taskTotalCost = 0;
+      let taskLoggedMinutes = 0;
       const assigneeCosts = [];
-      const userCostMap = new Map(); // track cost per user for this task
+      const userCostMap = new Map();
 
-      // If roles exist, calculate role-wise
-      if (task.roleAssignments && task.roleAssignments.length > 0) {
-        task.roleAssignments.forEach(ra => {
-          const roleDurationHours = durationToHours(ra.duration || task.duration);
-          if (ra.assignees && ra.assignees.length > 0) {
-            ra.assignees.forEach(assignee => {
-              const salaryInfo = employeeSalaries[assignee._id.toString()] || { monthlySalary: 0 };
-              const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary);
+      const taskLogs = taskLogsMap[task._id.toString()] || [];
+      
+      // Calculate costs based on logs
+      taskLogs.forEach(log => {
+        const uid = log.user.toString();
+        const salaryInfo = employeeSalaries[uid] || { monthlySalary: 0 };
+        const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary);
+        const hoursLogged = log.durationMinutes / 60;
+        const logCost = hoursLogged * hourlyRate;
 
-              // Each assignee in the role gets the full role duration (or shared?) 
-              // Based on user request "UI/UX 8 hour", if multiple people, usually they share the effort.
-              // We'll follow the existing logic of sharing the duration among assignees of the role.
-              const hoursWorked = roleDurationHours / ra.assignees.length;
-              const roleAssigneeCost = hoursWorked * hourlyRate;
+        taskTotalCost += logCost;
+        taskLoggedMinutes += log.durationMinutes;
 
-              taskTotalCost += roleAssigneeCost;
-
-              // Aggregate for assignee summary
-              const uid = assignee._id.toString();
-              if (!userCostMap.has(uid)) {
-                userCostMap.set(uid, {
-                  user: { _id: assignee._id, name: assignee.name, email: assignee.email },
-                  monthlySalary: salaryInfo.monthlySalary,
-                  hourlyRate: Math.round(hourlyRate * 100) / 100,
-                  hoursWorked: 0,
-                  cost: 0
-                });
-              }
-              const stats = userCostMap.get(uid);
-              stats.hoursWorked += hoursWorked;
-              stats.cost += roleAssigneeCost;
-            });
-          }
-        });
-
-        // Convert map to array for the response
-        userCostMap.forEach(val => {
-          val.hoursWorked = Math.round(val.hoursWorked * 100) / 100;
-          val.cost = Math.round(val.cost * 100) / 100;
-          assigneeCosts.push(val);
-        });
-
-      } else {
-        // Fallback to legacy assignee-only logic
-        const durationHours = durationToHours(task.duration);
-        if (task.assignees && task.assignees.length > 0) {
-          task.assignees.forEach(assignee => {
-            const salaryInfo = employeeSalaries[assignee._id.toString()] || { monthlySalary: 0 };
-            const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary);
-            const hoursWorked = durationHours / task.assignees.length;
-            const assigneeCost = hoursWorked * hourlyRate;
-
-            assigneeCosts.push({
-              user: { _id: assignee._id, name: assignee.name, email: assignee.email },
-              monthlySalary: salaryInfo.monthlySalary,
-              hourlyRate: Math.round(hourlyRate * 100) / 100,
-              hoursWorked: Math.round(hoursWorked * 100) / 100,
-              cost: Math.round(assigneeCost * 100) / 100
-            });
-
-            taskTotalCost += assigneeCost;
+        if (!userCostMap.has(uid)) {
+          // Find user info from logs if possible, or from assignees
+          const userInTask = task.assignees.find(a => a._id.toString() === uid);
+          userCostMap.set(uid, {
+            user: userInTask ? { _id: userInTask._id, name: userInTask.name, email: userInTask.email } : { _id: uid },
+            monthlySalary: salaryInfo.monthlySalary,
+            hourlyRate: Math.round(hourlyRate * 100) / 100,
+            hoursWorked: 0,
+            cost: 0
           });
         }
-      }
+        const stats = userCostMap.get(uid);
+        stats.hoursWorked += hoursLogged;
+        stats.cost += logCost;
+      });
+
+      // Convert map to array and round
+      userCostMap.forEach(val => {
+        val.hoursWorked = Math.round(val.hoursWorked * 100) / 100;
+        val.cost = Math.round(val.cost * 100) / 100;
+        assigneeCosts.push(val);
+      });
 
       const statusName = task.status?.name?.toLowerCase() || '';
       const isCompleted = statusName === 'done' || statusName === 'completed';
@@ -1504,7 +1487,7 @@ exports.getProjectCosts = async (req, res) => {
         status: task.status,
         priority: task.priority,
         duration: task.duration,
-        roleAssignments: task.roleAssignments,
+        loggedMinutes: taskLoggedMinutes,
         isCompleted,
         assignees: assigneeCosts,
         totalCost: Math.round(taskTotalCost * 100) / 100
