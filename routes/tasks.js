@@ -10,6 +10,7 @@ router.use(authenticate);
 
 router.get('/', taskController.getTasks);
 router.get('/bulk-durations', taskController.getBulkUserDurations);
+router.get('/role-task-durations', taskController.getRoleTaskDurations);
 router.get('/:taskId', taskController.getTaskById);
 const checkCreateTaskPermission = async (req, res, next) => {
     if (req.body.parent) {

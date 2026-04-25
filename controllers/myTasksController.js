@@ -46,13 +46,21 @@ exports.getMyTasks = async (req, res) => {
       .populate('roleAssignments.assignees', 'name email')
       .populate('sequentialAssignees.user', 'name email')
       .populate('assignees', 'name email')
-      .select('title description status project roleAssignments currentRoleIndex useRoleWorkflow sequentialAssignees currentAssigneeIndex useSequentialWorkflow assignees priority createdAt updatedAt')
+      .select('title description status project roleAssignments currentRoleIndex useRoleWorkflow sequentialAssignees currentAssigneeIndex useSequentialWorkflow assignees priority startDate dueDate createdAt updatedAt')
       .sort({ updatedAt: -1 });
 
     const scopedTasks = tasks.filter(t => {
       const pid = t.project?._id?.toString();
       return pid && allowedProjectIdSet.has(pid);
     });
+
+    const taskIds = scopedTasks.map(t => t._id);
+    const taskDurations = await TaskUserDuration.aggregate([
+      { $match: { user: userId, task: { $in: taskIds } } },
+      { $group: { _id: "$task", totalMinutes: { $sum: "$durationMinutes" } } }
+    ]);
+    const durationMap = {};
+    taskDurations.forEach(d => { durationMap[d._id.toString()] = d.totalMinutes; });
 
     console.log(`[getMyTasks] Found ${scopedTasks.length} tasks for user ${userId} (companyId=${companyId || 'personal'})`);
 
@@ -86,6 +94,8 @@ exports.getMyTasks = async (req, res) => {
 
     // Filter and format tasks with user's step info
     const myTasks = scopedTasks.map(task => {
+      const durationMinutes = durationMap[task._id.toString()] || 0;
+
       // Priority 1: Check if user is in sequentialAssignees (simple sequential workflow)
       if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
         const userAssigneeIndex = task.sequentialAssignees.findIndex(sa => {
@@ -106,6 +116,8 @@ exports.getMyTasks = async (req, res) => {
             project: task.project,
             status: task.status,
             priority: task.priority,
+            startDate: task.startDate,
+            dueDate: task.dueDate,
             workflowType: 'sequential',
             userAssignee: {
               order: userAssignee.order,
@@ -115,11 +127,14 @@ exports.getMyTasks = async (req, res) => {
               isNext: isNextAssignee,
               startedAt: userAssignee.startedAt,
               pausedAt: userAssignee.pausedAt,
-              completedAt: userAssignee.completedAt
+              completedAt: userAssignee.completedAt,
+              startDate: userAssignee.startDate,
+              dueDate: userAssignee.dueDate
             },
             canStart: isCurrentAssignee && !hasTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused'),
             createdAt: task.createdAt,
-            updatedAt: task.updatedAt
+            updatedAt: task.updatedAt,
+            durationMinutes
           };
         }
       }
@@ -160,6 +175,8 @@ exports.getMyTasks = async (req, res) => {
           project: task.project,
           status: task.status,
           priority: task.priority,
+          startDate: task.startDate,
+          dueDate: task.dueDate,
           workflowType: 'role',
           userStep: {
             stepOrder: userStep.order,
@@ -167,12 +184,18 @@ exports.getMyTasks = async (req, res) => {
             status: userStep.status,
             isCurrent: isCurrentStep,
             isPrevious: isPreviousStep,
-            isNext: isNextStep
+            isNext: isNextStep,
+            startedAt: userStep.startedAt,
+            completedAt: userStep.completedAt,
+            startDate: userStep.startDate,
+            dueDate: userStep.dueDate,
+            duration: userStep.duration
           },
           canStart: canStart && !hasTaskInProgress,
           useRoleWorkflow: true,
           createdAt: task.createdAt,
-          updatedAt: task.updatedAt
+          updatedAt: task.updatedAt,
+          durationMinutes
         };
       }
 
@@ -191,6 +214,8 @@ exports.getMyTasks = async (req, res) => {
           project: task.project,
           status: task.status,
           priority: task.priority,
+          startDate: task.startDate,
+          dueDate: task.dueDate,
           workflowType: 'regular',
           userStep: {
             stepOrder: null,
@@ -198,12 +223,15 @@ exports.getMyTasks = async (req, res) => {
             status: 'assigned',
             isCurrent: false,
             isPrevious: false,
-            isNext: false
+            isNext: false,
+            startedAt: task.startDate || null,
+            completedAt: null
           },
           canStart: false,
           useRoleWorkflow: task.useRoleWorkflow || false,
           createdAt: task.createdAt,
-          updatedAt: task.updatedAt
+          updatedAt: task.updatedAt,
+          durationMinutes
         };
       }
 

@@ -764,6 +764,10 @@ exports.bulkScheduleTasks = async (req, res) => {
     // Perform bulk update
     const bulkOps = schedules.map(s => {
       if (s.roleId) {
+        // arrayFilters does not auto-cast strings to ObjectId, so coerce explicitly
+        const roleObjectId = mongoose.Types.ObjectId.isValid(s.roleId)
+          ? new mongoose.Types.ObjectId(s.roleId)
+          : s.roleId;
         return {
           updateOne: {
             filter: { _id: s.taskId },
@@ -773,7 +777,7 @@ exports.bulkScheduleTasks = async (req, res) => {
                 "roleAssignments.$[elem].dueDate": s.dueDate
               }
             },
-            arrayFilters: [{ "elem.role": s.roleId }]
+            arrayFilters: [{ "elem.role": roleObjectId }]
           }
         };
       } else {
@@ -791,11 +795,17 @@ exports.bulkScheduleTasks = async (req, res) => {
       }
     });
 
+    let writeResult = { matchedCount: 0, modifiedCount: 0 };
     if (bulkOps.length > 0) {
-      await Task.bulkWrite(bulkOps);
+      writeResult = await Task.bulkWrite(bulkOps);
     }
 
-    res.json({ success: true, count: bulkOps.length });
+    res.json({
+      success: true,
+      count: bulkOps.length,
+      matchedCount: writeResult.matchedCount,
+      modifiedCount: writeResult.modifiedCount
+    });
   } catch (error) {
     console.error('Error in bulkScheduleTasks:', error);
     res.status(500).json({ error: error.message });
@@ -1107,6 +1117,74 @@ exports.getTaskDurations = async (req, res) => {
     res.json({ taskId, durations: Object.values(grouped) });
   } catch (error) {
     console.error('Error getting task durations:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /projects/:projectId/tasks/role-task-durations?roleId=X
+ * Returns { taskId: durationMinutes } for the role's assignment on each task.
+ * Source order:
+ *   1. Sum of TaskUserDuration where user ∈ ra.assignees and taskStep ∈ {ra._id, null}
+ *   2. Fallback to ra.duration.value if no per-user records found
+ * Used by the auto-schedule flow to recover hours when ra.duration.value is empty
+ * (e.g. when only individual TaskUserDuration entries were recorded).
+ */
+exports.getRoleTaskDurations = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { roleId } = req.query;
+    if (!roleId || !mongoose.Types.ObjectId.isValid(roleId)) {
+      return res.status(400).json({ error: 'Valid roleId is required' });
+    }
+
+    const tasks = await Task.find({ project: projectId })
+      .select('_id roleAssignments')
+      .lean();
+
+    const toMinutes = (d) => {
+      if (!d || d.value == null) return 0;
+      switch (d.unit) {
+        case 'minutes': return d.value;
+        case 'hours': return d.value * 60;
+        case 'days': return d.value * 8 * 60;
+        case 'weeks': return d.value * 8 * 60 * 5;
+        default: return d.value * 60;
+      }
+    };
+
+    const perTask = [];
+    tasks.forEach(t => {
+      const ra = (t.roleAssignments || []).find(r => (r.role?._id || r.role)?.toString() === roleId);
+      if (!ra) return;
+      perTask.push({
+        taskId: t._id.toString(),
+        raId: ra._id.toString(),
+        assignees: (ra.assignees || []).map(a => a.toString()),
+        raDurationMin: toMinutes(ra.duration),
+      });
+    });
+
+    if (perTask.length === 0) return res.json({});
+
+    const taskIds = perTask.map(p => new mongoose.Types.ObjectId(p.taskId));
+    const allDurs = await TaskUserDuration.find({ task: { $in: taskIds } }).lean();
+
+    const result = {};
+    perTask.forEach(p => {
+      const sum = allDurs
+        .filter(d => d.task.toString() === p.taskId)
+        .filter(d => p.assignees.includes(d.user.toString()))
+        .filter(d => !d.taskStep || d.taskStep.toString() === p.raId)
+        .reduce((acc, d) => acc + (d.durationMinutes || 0), 0);
+
+      const minutes = sum > 0 ? sum : p.raDurationMin;
+      if (minutes > 0) result[p.taskId] = minutes;
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error in getRoleTaskDurations:', error);
     res.status(500).json({ error: error.message });
   }
 };
