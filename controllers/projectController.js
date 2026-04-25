@@ -68,6 +68,7 @@ exports.getProjects = async (req, res) => {
 
     const projects = await Project.find(query)
       .populate('owner', 'name email profile')
+      .populate('projectManager', 'name email profile')
       .populate('members.user', 'name email profile')
       .populate('company', 'name')
       .sort({ createdAt: -1 });
@@ -160,6 +161,7 @@ exports.getProjectById = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id)
       .populate('owner', 'name email profile')
+      .populate('projectManager', 'name email profile')
       .populate('members.user', 'name email profile')
       .populate('company', 'name');
 
@@ -251,6 +253,12 @@ exports.updateProject = async (req, res) => {
 
     const projectData = { ...req.body };
 
+    // Authority Check for projectManager assignment
+    const isOwner = project.owner.equals(req.user._id);
+    if (projectData.projectManager && !isOwner && !isSuperAdmin) {
+      delete projectData.projectManager; // Only owner can change PM
+    }
+
     // Function to parse stringified JSON fields from FormData
     const parseJSONField = (field) => {
       if (typeof field === 'string' && (field.startsWith('{') || field.startsWith('['))) {
@@ -273,6 +281,7 @@ exports.updateProject = async (req, res) => {
     Object.assign(project, projectData);
     await project.save();
     await project.populate('owner', 'name email profile');
+    await project.populate('projectManager', 'name email profile');
     await project.populate('members.user', 'name email profile');
 
     res.json(project);
@@ -304,9 +313,16 @@ exports.addTeamMember = async (req, res) => {
 
     // Check if user is a Project Manager
     if (!hasAccess) {
-      const member = project.members.find(m => m.user.toString() === req.user._id.toString());
-      if (member && member.role === 'Project Manager') {
+      const pmId = project.projectManager?._id || project.projectManager;
+      if (pmId && pmId.toString() === req.user._id.toString()) {
         hasAccess = true;
+      }
+      
+      if (!hasAccess) {
+        const member = project.members.find(m => m.user.toString() === req.user._id.toString());
+        if (member && member.role === 'Project Manager') {
+          hasAccess = true;
+        }
       }
     }
 
