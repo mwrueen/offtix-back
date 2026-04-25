@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const Company = require('../models/Company');
 const User = require('../models/User');
@@ -1355,6 +1356,10 @@ exports.updateProjectStatus = async (req, res) => {
 // Get project cost breakdown
 exports.getProjectCosts = async (req, res) => {
   try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid project ID format' });
+    }
     const project = await Project.findById(req.params.id)
       .populate('owner', 'name email')
       .populate('members.user', 'name email')
@@ -1398,13 +1403,54 @@ exports.getProjectCosts = async (req, res) => {
       }
     }
 
-    const workingDaysPerMonth = daysPerWeek * 4.33;
-    const workingHoursPerMonth = workingDaysPerMonth * hoursPerDay;
 
-    // Helper function to calculate hourly rate
+    // Helper function to calculate working hours in a month accurately
+    const getWorkingHoursInMonth = (date, hoursPerDay, workingDays, holidayList) => {
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getUTCDate();
+      let totalHours = 0;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        // Use UTC noon to avoid timezone shifts when comparing strings
+        const current = new Date(Date.UTC(year, month, day, 12, 0, 0));
+        const dayOfWeek = current.getUTCDay(); // 0 (Sun) to 6 (Sat)
+        
+        // Adjust for 1-based working days (1=Mon, 7=Sun)
+        const adjustedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
+        
+        if (workingDays.includes(adjustedDayOfWeek)) {
+          // Check if it's a holiday
+          const currentStr = current.toISOString().split('T')[0];
+          const isHoliday = (holidayList || []).some(h => {
+             if (h.isRange) {
+               if (!h.startDate || !h.endDate) return false;
+               const start = new Date(h.startDate).toISOString().split('T')[0];
+               const end = new Date(h.endDate).toISOString().split('T')[0];
+               return currentStr >= start && currentStr <= end;
+             }
+             if (!h.date) return false;
+             return new Date(h.date).toISOString().split('T')[0] === currentStr;
+          });
+          
+          if (!isHoliday) totalHours += hoursPerDay;
+        }
+      }
+      return totalHours || (20 * hoursPerDay); // Fallback
+    };
+
+    const now = new Date();
+    const workingHoursThisMonth = getWorkingHoursInMonth(
+      now, 
+      hoursPerDay, 
+      project.settings?.workingDays || [1, 2, 3, 4, 5],
+      project.company?.settings?.holidays || []
+    );
+
+    // Calculate hourly rate based on ACTUAL working hours this month
     const calculateHourlyRate = (monthlySalary) => {
       if (!monthlySalary || monthlySalary <= 0) return 0;
-      return monthlySalary / workingHoursPerMonth;
+      return monthlySalary / workingHoursThisMonth;
     };
 
     // Helper function to convert duration to hours
@@ -1448,12 +1494,12 @@ exports.getProjectCosts = async (req, res) => {
       taskLogs.forEach(log => {
         const uid = log.user.toString();
         const salaryInfo = employeeSalaries[uid] || { monthlySalary: 0 };
-        const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary);
-        const hoursLogged = log.durationMinutes / 60;
+        const hourlyRate = calculateHourlyRate(salaryInfo.monthlySalary || 0);
+        const hoursLogged = (log.durationMinutes || 0) / 60;
         const logCost = hoursLogged * hourlyRate;
 
-        taskTotalCost += logCost;
-        taskLoggedMinutes += log.durationMinutes;
+        taskTotalCost += (logCost || 0);
+        taskLoggedMinutes += (log.durationMinutes || 0);
 
         if (!userCostMap.has(uid)) {
           // Find user info from logs if possible, or from assignees
@@ -1473,9 +1519,11 @@ exports.getProjectCosts = async (req, res) => {
 
       // Convert map to array and round
       userCostMap.forEach(val => {
-        val.hoursWorked = Math.round(val.hoursWorked * 100) / 100;
-        val.cost = Math.round(val.cost * 100) / 100;
-        assigneeCosts.push(val);
+        if (val) {
+          val.hoursWorked = Math.round((val.hoursWorked || 0) * 100) / 100;
+          val.cost = Math.round((val.cost || 0) * 100) / 100;
+          assigneeCosts.push(val);
+        }
       });
 
       const statusName = task.status?.name?.toLowerCase() || '';
@@ -1498,13 +1546,14 @@ exports.getProjectCosts = async (req, res) => {
     const totalCost = taskCosts.reduce((sum, t) => sum + t.totalCost, 0);
     const completedCost = taskCosts.filter(t => t.isCompleted).reduce((sum, t) => sum + t.totalCost, 0);
     const pendingCost = totalCost - completedCost;
-    const totalHours = taskCosts.reduce((sum, t) => sum + t.durationHours, 0);
+    const totalHours = taskCosts.reduce((sum, t) => sum + ((t.loggedMinutes || 0) / 60), 0);
 
     // Cost by employee
     const costByEmployee = {};
     taskCosts.forEach(task => {
-      task.assignees.forEach(assignee => {
-        const id = assignee.user._id.toString();
+      (task.assignees || []).forEach(assignee => {
+        if (!assignee.user) return;
+        const id = (assignee.user._id || assignee.user).toString();
         if (!costByEmployee[id]) {
           costByEmployee[id] = {
             user: assignee.user,
@@ -1514,8 +1563,8 @@ exports.getProjectCosts = async (req, res) => {
             taskCount: 0
           };
         }
-        costByEmployee[id].totalCost += assignee.cost;
-        costByEmployee[id].totalHours += assignee.hoursWorked;
+        costByEmployee[id].totalCost += (assignee.cost || 0);
+        costByEmployee[id].totalHours += (assignee.hoursWorked || 0);
         costByEmployee[id].taskCount += 1;
       });
     });
@@ -1532,12 +1581,12 @@ exports.getProjectCosts = async (req, res) => {
         _id: project._id,
         title: project.title,
         budget: project.budget,
-        actualCost: project.actualCost
+        actualCost: { amount: Math.round(totalCost * 100) / 100, currency: project.company?.currency || 'USD' }
       },
       settings: {
-        hoursPerDay,
-        daysPerWeek,
-        workingHoursPerMonth: Math.round(workingHoursPerMonth * 100) / 100
+        hoursPerDay: hoursPerDay || 8,
+        daysPerWeek: daysPerWeek || 5,
+        workingHoursPerMonth: Math.round((workingHoursThisMonth || 160) * 100) / 100
       },
       summary: {
         totalTasks: tasks.length,
@@ -1554,7 +1603,7 @@ exports.getProjectCosts = async (req, res) => {
       tasks: taskCosts
     });
   } catch (error) {
-    console.error('Error getting project costs:', error);
+    console.error('SERVER ERROR IN getProjectCosts:', error.message, error.stack);
     res.status(500).json({ error: error.message });
   }
 };

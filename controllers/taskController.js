@@ -882,12 +882,16 @@ exports.getBulkUserDurations = async (req, res) => {
     const { projectId } = req.params;
     const { userId, roleId } = req.query;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: 'Valid userId is required' });
+    }
+
+    if (roleId && !mongoose.Types.ObjectId.isValid(roleId)) {
+        return res.status(400).json({ error: 'Invalid roleId format' });
     }
 
     // Get all tasks for the project
-    const tasks = await Task.find({ project: projectId }).select('_id roleAssignments').lean();
+    const tasks = await Task.find({ project: projectId }).select('_id roleAssignments').populate('roleAssignments.role').lean();
 
     const raToTask = {};
     const validIds = [];
@@ -895,7 +899,8 @@ exports.getBulkUserDurations = async (req, res) => {
     tasks.forEach(task => {
       const taskIdStr = task._id.toString();
       task.roleAssignments?.forEach(ra => {
-        const raRoleId = ra.role?.toString() || '';
+        const raRole = ra.role?._id || ra.role;
+        const raRoleId = raRole?.toString() || '';
         if (!roleId || raRoleId === roleId) {
           const raIdStr = ra._id.toString();
           raToTask[raIdStr] = taskIdStr;
@@ -911,30 +916,53 @@ exports.getBulkUserDurations = async (req, res) => {
       }
     });
 
-    // Fetch TaskUserDuration records matching the role assignments (or tasks) + user
+    // Fetch all TaskUserDuration records for this user and these tasks
     const durations = await TaskUserDuration.find({
-      $or: [
-        { taskStep: { $in: validIds } },
-        { task: { $in: tasks.map(t => t._id) }, taskStep: null }
-      ],
-      user: userId
+      task: { $in: tasks.map(t => t._id) },
+      user: (mongoose.Types.ObjectId.isValid(userId)) ? new mongoose.Types.ObjectId(userId) : userId
     }).lean();
+
+    const targetRole = roleId ? await mongoose.model('TaskRole').findById(roleId) : null;
+    const targetRoleName = targetRole?.name?.toLowerCase();
 
     // Build result map: taskId -> durationMinutes
     const result = {};
     durations.forEach(d => {
       let taskId = d.task?.toString();
-      if (!taskId && d.taskStep) {
-        taskId = raToTask[d.taskStep.toString()];
+      let includeLog = true;
+
+      if (targetRoleName && d.taskStep) {
+        // Find which role assignment this log belongs to
+        const stepIdStr = d.taskStep.toString();
+        let raMatch = false;
+        
+        // Find the task containing this role assignment
+        const taskObj = tasks.find(t => t._id.toString() === taskId);
+        if (taskObj && taskObj.roleAssignments) {
+          const ra = taskObj.roleAssignments.find(ra => ra._id.toString() === stepIdStr);
+          const raRoleObj = ra?.role;
+          const raRoleName = (raRoleObj?.name || ra?.roleName || '').toLowerCase();
+          if (raRoleName.includes(targetRoleName)) {
+            raMatch = true;
+          }
+        }
+        includeLog = raMatch;
+      } else if (targetRoleName && !d.taskStep) {
+        // If it's a general task log, always include it so the owner sees ALL time logged by the user on the task
+        includeLog = true; 
       }
-      if (taskId) {
-        result[taskId] = (result[taskId] || 0) + d.durationMinutes;
+
+      if (includeLog && taskId) {
+        result[taskId] = (result[taskId] || 0) + (d.durationMinutes || 0);
       }
     });
 
+    if (Object.keys(result).length === 0) {
+        console.log(`No durations found for project ${projectId}, user ${userId}, role ${roleId}`);
+    }
     res.json(result);
   } catch (error) {
-    console.error('Error in getBulkUserDurations:', error);
+    console.error('SERVER ERROR IN getBulkUserDurations:', error.message, error.stack);
     res.status(500).json({ error: error.message });
   }
 };
