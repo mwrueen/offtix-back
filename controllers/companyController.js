@@ -97,8 +97,8 @@ exports.createCompany = async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, { company: company._id });
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.status(201).json(populatedCompany);
   } catch (error) {
@@ -109,8 +109,8 @@ exports.createCompany = async (req, res) => {
 exports.getCompany = async (req, res) => {
   try {
     const company = await Company.findById(req.params.id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     if (!company) {
       return res.status(404).json({ message: 'Company not found' });
@@ -170,8 +170,8 @@ exports.addMember = async (req, res) => {
     await User.findByIdAndUpdate(userId, { company: company._id });
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -216,8 +216,8 @@ exports.updateMemberSalary = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -255,8 +255,8 @@ exports.updateMemberDesignation = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -289,8 +289,8 @@ exports.addDesignation = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -328,8 +328,8 @@ exports.updateDesignationPermissions = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -375,8 +375,8 @@ exports.deleteDesignation = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json(populatedCompany);
   } catch (error) {
@@ -392,12 +392,12 @@ exports.getUserCompany = async (req, res) => {
 
     if (user.company) {
       company = await Company.findById(user.company._id)
-        .populate('owner', 'name email')
-        .populate('members.user', 'name email');
+        .populate('owner', 'name email profile avatar')
+        .populate('members.user', 'name email profile avatar');
     } else {
       company = await Company.findOne({ owner: req.user._id })
-        .populate('owner', 'name email')
-        .populate('members.user', 'name email');
+        .populate('owner', 'name email profile avatar')
+        .populate('members.user', 'name email profile avatar');
 
       if (company) {
         await User.findByIdAndUpdate(req.user._id, { company: company._id });
@@ -425,7 +425,7 @@ exports.getUserCompanies = async (req, res) => {
         { 'members.user': userId }
       ]
     })
-      .populate('owner', 'name email')
+      .populate('owner', 'name email profile avatar')
       .select('_id name description owner members designations currency logo')
       .lean();
 
@@ -561,8 +561,8 @@ exports.updateCompanySettings = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json({ message: 'Settings updated successfully', company: populatedCompany });
   } catch (error) {
@@ -651,8 +651,8 @@ exports.addHoliday = async (req, res) => {
     await company.save();
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json({ message: 'Holiday added successfully', company: populatedCompany });
   } catch (error) {
@@ -682,8 +682,8 @@ exports.removeHoliday = async (req, res) => {
     }
 
     const populatedCompany = await Company.findById(company._id)
-      .populate('owner', 'name email')
-      .populate('members.user', 'name email');
+      .populate('owner', 'name email profile avatar')
+      .populate('members.user', 'name email profile avatar');
 
     res.json({ message: 'Holiday removed successfully', company: populatedCompany });
   } catch (error) {
@@ -978,7 +978,7 @@ exports.getOrganogram = async (req, res) => {
     const company = await Company.findById(req.params.id)
       .populate('owner', 'name email profile')
       .populate('members.user', 'name email profile')
-      .populate('members.reportsTo', 'name email');
+      .populate('members.reportsTo', 'name email profile avatar');
 
     if (!company) {
       return res.status(404).json({ message: 'Company not found' });
