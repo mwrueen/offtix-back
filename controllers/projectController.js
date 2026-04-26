@@ -74,6 +74,62 @@ exports.getProjects = async (req, res) => {
       .populate('company', 'name')
       .sort({ createdAt: -1 });
 
+    // Compute real-time progress & derived status from tasks
+    const projectIds = projects.map(p => p._id);
+    if (projectIds.length > 0) {
+      const Task = require('../models/Task');
+      const taskStats = await Task.aggregate([
+        { $match: { project: { $in: projectIds } } },
+        { $lookup: { from: 'taskstatuses', localField: 'status', foreignField: '_id', as: 'st' } },
+        { $addFields: { statusName: { $toLower: { $ifNull: [{ $arrayElemAt: ['$st.name', 0] }, ''] } } } },
+        { $group: {
+          _id: '$project',
+          total: { $sum: 1 },
+          completed: { $sum: { $cond: [{ $or: [
+            { $eq: ['$statusName', 'completed'] },
+            { $eq: ['$statusName', 'done'] }
+          ]}, 1, 0] } },
+          inProgress: { $sum: { $cond: [{ $or: [
+            { $eq: ['$statusName', 'in progress'] },
+            { $eq: ['$statusName', 'active'] }
+          ]}, 1, 0] } }
+        }}
+      ]);
+
+      const statsMap = new Map();
+      taskStats.forEach(s => statsMap.set(s._id.toString(), s));
+
+      projects.forEach(p => {
+        const s = statsMap.get(p._id.toString());
+        const total = s?.total || 0;
+        const completed = s?.completed || 0;
+        const inProgress = s?.inProgress || 0;
+        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        // Attach computed progress
+        p.progress = {
+          percentage,
+          tasksCompleted: completed,
+          tasksTotal: total,
+          lastUpdated: new Date()
+        };
+
+        // Derive status only for not_started / running (preserve paused/cancelled/closed)
+        const currentStatus = p.status;
+        if (currentStatus === 'not_started' || currentStatus === 'running') {
+          if (total === 0) {
+            p.status = 'not_started';
+          } else if (completed === total) {
+            p.status = 'closed';
+          } else if (completed > 0 || inProgress > 0) {
+            p.status = 'running';
+          } else {
+            p.status = 'not_started';
+          }
+        }
+      });
+    }
+
     res.json(projects);
   } catch (error) {
     console.error('Error in getProjects:', error);

@@ -12,12 +12,30 @@ exports.getMyTasks = async (req, res) => {
     const userId = req.user._id;
     const companyId = req.headers['x-company-id'] || req.query.companyId || null;
 
-    const projectFilter = companyId
-      ? { company: companyId }
-      : { $or: [{ company: { $exists: false } }, { company: null }] };
+    let allowedProjectIds = [];
+    if (companyId) {
+      // Explicit company context: use that company's projects
+      const projects = await Project.find({ company: companyId }).select('_id').lean();
+      allowedProjectIds = projects.map(p => p._id);
+    } else {
+      // No explicit company context: find all projects the user has access to
+      const user = await User.findById(userId).select('company').lean();
+      const userCompanyId = user?.company;
 
-    const allowedProjects = await Project.find(projectFilter).select('_id').lean();
-    const allowedProjectIds = allowedProjects.map(p => p._id);
+      const projectOrConditions = [
+        { company: { $exists: false } },
+        { company: null },
+        { owner: userId },
+        { 'members.user': userId }
+      ];
+      if (userCompanyId) {
+        projectOrConditions.push({ company: userCompanyId });
+      }
+
+      const projects = await Project.find({ $or: projectOrConditions }).select('_id').lean();
+      allowedProjectIds = projects.map(p => p._id);
+    }
+
     const allowedProjectIdSet = new Set(allowedProjectIds.map(id => id.toString()));
 
     // Find all tasks where user is in sequentialAssignees, roleAssignments OR regular assignees
@@ -105,9 +123,11 @@ exports.getMyTasks = async (req, res) => {
 
         if (userAssigneeIndex !== -1) {
           const userAssignee = task.sequentialAssignees[userAssigneeIndex];
-          const isCurrentAssignee = task.currentAssigneeIndex === userAssigneeIndex;
+          const isCurrentAssignee = task.currentAssigneeIndex === -1
+            ? userAssigneeIndex === 0
+            : task.currentAssigneeIndex === userAssigneeIndex;
           const isPreviousAssignee = task.currentAssigneeIndex > userAssigneeIndex;
-          const isNextAssignee = task.currentAssigneeIndex < userAssigneeIndex;
+          const isNextAssignee = task.currentAssigneeIndex !== -1 && task.currentAssigneeIndex < userAssigneeIndex;
 
           return {
             _id: task._id,
@@ -131,7 +151,7 @@ exports.getMyTasks = async (req, res) => {
               startDate: userAssignee.startDate,
               dueDate: userAssignee.dueDate
             },
-            canStart: isCurrentAssignee && !hasTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused'),
+            canStart: !hasTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused'),
             createdAt: task.createdAt,
             updatedAt: task.updatedAt,
             durationMinutes
@@ -152,21 +172,15 @@ exports.getMyTasks = async (req, res) => {
       // Show task if it has roleAssignments (even if useRoleWorkflow is false, as it might be set up)
       if (userStepIndex !== -1 && task.roleAssignments && task.roleAssignments.length > 0) {
         const userStep = task.roleAssignments[userStepIndex];
-        const isCurrentStep = task.currentRoleIndex === userStepIndex;
+        const isCurrentStep = task.currentRoleIndex === -1
+          ? userStepIndex === 0
+          : task.currentRoleIndex === userStepIndex;
         const isPreviousStep = task.currentRoleIndex > userStepIndex;
-        const isNextStep = task.currentRoleIndex < userStepIndex;
+        const isNextStep = task.currentRoleIndex !== -1 && task.currentRoleIndex < userStepIndex;
 
-        // Check eligibility to start
-        let canStart = false;
-        if (isCurrentStep && (userStep.status === 'pending' || userStep.status === 'blocked')) {
-          // Check if previous step is completed
-          if (userStepIndex === 0) {
-            canStart = true; // First step can always start
-          } else {
-            const previousStep = task.roleAssignments[userStepIndex - 1];
-            canStart = previousStep.status === 'completed' || previousStep.status === 'skipped';
-          }
-        }
+        // Allow ANY user to start their step, regardless of scheduled time or workflow order
+        const canStart = !hasTaskInProgress &&
+          (userStep.status === 'pending' || userStep.status === 'blocked' || userStep.status === 'active' || userStep.status === 'paused');
 
         return {
           _id: task._id,
@@ -306,18 +320,20 @@ exports.getMyTaskDetails = async (req, res) => {
         workflowType = 'sequential';
 
         const userAssignee = task.sequentialAssignees[userAssigneeIndex];
-        const isCurrentAssignee = task.currentAssigneeIndex === userAssigneeIndex;
+        const isCurrentAssignee = task.currentAssigneeIndex === -1
+          ? userAssigneeIndex === 0
+          : task.currentAssigneeIndex === userAssigneeIndex;
 
         // Get activity/timeline
         const activities = await TaskActivity.find({ task: taskId })
           .populate('performedBy', 'name email profile')
           .sort({ createdAt: -1 });
 
-        // Determine allowed actions
-        const canStart = isCurrentAssignee && !hasOtherTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused');
-        const canPause = isCurrentAssignee && userAssignee.status === 'in_progress';
-        const canComplete = isCurrentAssignee && (userAssignee.status === 'in_progress' || userAssignee.status === 'paused');
-        const canSendBack = isCurrentAssignee && userAssigneeIndex > 0;
+        // Determine allowed actions - allow start regardless of workflow order
+        const canStart = !hasOtherTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused');
+        const canPause = userAssignee.status === 'in_progress';
+        const canComplete = userAssignee.status === 'in_progress' || userAssignee.status === 'paused';
+        const canSendBack = userAssigneeIndex > 0 && (userAssignee.status === 'in_progress' || userAssignee.status === 'active');
 
         return res.json({
           task: {
@@ -386,38 +402,11 @@ exports.getMyTaskDetails = async (req, res) => {
           .populate('sentBackTo', 'name email')
           .sort({ createdAt: -1 });
 
-        // Check eligibility
-        let canStart = false;
-        let canComplete = false;
+        // Check eligibility - allow anyone to start regardless of workflow order
+        let canStart = !hasOtherTaskInProgress && (currentStep.status === 'pending' || currentStep.status === 'blocked' || currentStep.status === 'active' || currentStep.status === 'paused');
+        let canComplete = currentStep.status === 'active' || currentStep.status === 'in_progress' || currentStep.status === 'paused';
         let canSetDuration = true;
-        let canSendBack = false;
-
-        if (task.currentRoleIndex === userStepIndex) {
-          // User is in current step
-          if (currentStep.status === 'pending' || currentStep.status === 'blocked') {
-            // Check if previous step is completed
-            if (userStepIndex === 0) {
-              canStart = !hasOtherTaskInProgress;
-            } else {
-              const previousStep = task.roleAssignments[userStepIndex - 1];
-              canStart = !hasOtherTaskInProgress && (previousStep.status === 'completed' || previousStep.status === 'skipped');
-            }
-          } else if (currentStep.status === 'active' || currentStep.status === 'in_progress') {
-            canComplete = true;
-            canSetDuration = true;
-          }
-
-          // Can send back if current step is active/in_progress and previous step exists and is completed
-          if ((currentStep.status === 'active' || currentStep.status === 'in_progress') && userStepIndex > 0) {
-            const previousStep = task.roleAssignments[userStepIndex - 1];
-            if (previousStep.status === 'completed') {
-              canSendBack = true;
-            }
-          }
-        } else if (userStepIndex < task.currentRoleIndex) {
-          // User is in a previous step - can still set duration
-          canSetDuration = true;
-        }
+        let canSendBack = userStepIndex > 0 && (currentStep.status === 'active' || currentStep.status === 'in_progress');
 
         return res.json({
           task: {
@@ -616,8 +605,56 @@ exports.startTask = async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    if (!task.useRoleWorkflow) {
-      return res.status(400).json({ error: 'Task does not use role workflow' });
+    // Auto-detect workflow type and delegate
+    if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
+      // Forward to sequential workflow handler
+      return exports.startSequentialTask(req, res);
+    }
+
+    if (!task.useRoleWorkflow || !task.roleAssignments || task.roleAssignments.length === 0) {
+      // Regular task - just mark as in_progress
+      const isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'You are not assigned to this task' });
+      }
+
+      // Check for other tasks in progress
+      const tasksInProgress = await Task.find({
+        $or: [
+          { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
+          { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
+        ],
+        _id: { $ne: taskId }
+      });
+
+      if (tasksInProgress.length > 0) {
+        return res.status(400).json({
+          error: 'You already have a task in progress. Please complete or pause it before starting a new task.'
+        });
+      }
+
+      // Find and update status
+      const statusInProgress = await TaskStatus.findOne({ name: /^in.progress$/i }).lean();
+      if (statusInProgress) {
+        task.status = statusInProgress._id;
+      }
+
+      task.startDate = task.startDate || new Date();
+      await task.save();
+
+      await TaskActivity.create({
+        task: taskId,
+        action: 'started',
+        performedBy: userId
+      });
+
+      return res.json({
+        message: 'Task started',
+        task: {
+          _id: task._id,
+          status: task.status
+        }
+      });
     }
 
     // Find user's step
@@ -631,21 +668,9 @@ exports.startTask = async (req, res) => {
 
     const userStep = task.roleAssignments[userStepIndex];
 
-    // Check eligibility
-    if (task.currentRoleIndex !== userStepIndex) {
-      return res.status(400).json({ error: 'This is not your current step' });
-    }
-
+    // Allow ANY user to start their assigned step, regardless of workflow order
     if (userStep.status === 'completed') {
       return res.status(400).json({ error: 'Step is already completed' });
-    }
-
-    // Check if previous step is completed (if not first step)
-    if (userStepIndex > 0) {
-      const previousStep = task.roleAssignments[userStepIndex - 1];
-      if (previousStep.status !== 'completed' && previousStep.status !== 'skipped') {
-        return res.status(400).json({ error: 'Previous step must be completed first' });
-      }
     }
 
     // Check if user has any other task in progress
@@ -668,6 +693,10 @@ exports.startTask = async (req, res) => {
       userStep.status = 'active'; // Use 'active' to match existing workflow pattern
       if (!userStep.startedAt) {
         userStep.startedAt = new Date();
+      }
+      // Initialise workflow index if this is the very first start
+      if (task.currentRoleIndex === -1) {
+        task.currentRoleIndex = userStepIndex;
       }
 
       await task.save();
@@ -722,7 +751,54 @@ exports.completeTask = async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // Find user's step
+    // Auto-detect workflow type
+    if (task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0) {
+      return exports.completeSequentialTask(req, res);
+    }
+
+    if (!task.useRoleWorkflow || !task.roleAssignments || task.roleAssignments.length === 0) {
+      // Regular task
+      const isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'You are not assigned to this task' });
+      }
+
+      const statusCompleted = await TaskStatus.findOne({ name: /^completed$/i }).lean();
+      if (statusCompleted) {
+        task.status = statusCompleted._id;
+      }
+
+      let documents = [];
+      if (req.files && req.files.length > 0) {
+        documents = req.files.map(file => ({
+          filename: file.filename,
+          originalName: file.originalname,
+          path: file.path,
+          size: file.size,
+          uploadedAt: new Date()
+        }));
+      }
+
+      await task.save();
+
+      await TaskActivity.create({
+        task: taskId,
+        action: 'completed',
+        performedBy: userId,
+        note: note.trim(),
+        documents: documents
+      });
+
+      return res.json({
+        message: 'Task completed',
+        task: {
+          _id: task._id,
+          status: task.status
+        }
+      });
+    }
+
+    // Role workflow
     const userStepIndex = task.roleAssignments.findIndex(ra =>
       ra.assignees.some(a => a.toString() === userId.toString())
     );
@@ -733,12 +809,7 @@ exports.completeTask = async (req, res) => {
 
     const userStep = task.roleAssignments[userStepIndex];
 
-    // Check eligibility
-    if (task.currentRoleIndex !== userStepIndex) {
-      return res.status(400).json({ error: 'This is not your current step' });
-    }
-
-    if (userStep.status !== 'active' && userStep.status !== 'in_progress') {
+    if (userStep.status !== 'active' && userStep.status !== 'in_progress' && userStep.status !== 'paused') {
       return res.status(400).json({ error: 'Step must be started before completion' });
     }
 
@@ -988,12 +1059,7 @@ exports.startSequentialTask = async (req, res) => {
 
     const userAssignee = task.sequentialAssignees[userAssigneeIndex];
 
-    // Check if it's user's turn
-    if (task.currentAssigneeIndex !== userAssigneeIndex) {
-      return res.status(400).json({ error: 'It is not your turn yet' });
-    }
-
-    // Check if already completed
+    // Allow ANY assigned user to start, regardless of workflow order
     if (userAssignee.status === 'completed') {
       return res.status(400).json({ error: 'You have already completed this task' });
     }
@@ -1020,6 +1086,10 @@ exports.startSequentialTask = async (req, res) => {
         userAssignee.startedAt = new Date();
       }
       userAssignee.pausedAt = null;
+      // Initialise workflow index if this is the very first start
+      if (task.currentAssigneeIndex === -1) {
+        task.currentAssigneeIndex = userAssigneeIndex;
+      }
 
       await task.save();
 
