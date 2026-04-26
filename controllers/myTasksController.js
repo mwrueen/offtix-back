@@ -4,6 +4,7 @@ const TaskActivity = require('../models/TaskActivity');
 const Project = require('../models/Project');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const TaskStatus = require('../models/TaskStatus');
 const { validationResult } = require('express-validator');
 
 // Get all tasks assigned to logged-in user
@@ -286,13 +287,19 @@ exports.getMyTaskDetails = async (req, res) => {
     // If the user navigated from a notification or global task list without a company context,
     // they should still load the task. Authorization is handled below by checking if they are assigned.
 
+    const excludeIds = [taskId];
+    if (task.parent) excludeIds.push(task.parent);
+
     // Check if user has any other task in progress
     const tasksInProgress = await Task.find({
       $or: [
         { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
         { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
       ],
-      _id: { $ne: taskId } // Exclude current task
+      $and: [
+        { _id: { $nin: excludeIds } },
+        { parent: { $ne: taskId } }
+      ]
     });
 
     const hasOtherTaskInProgress = tasksInProgress.length > 0;
@@ -612,11 +619,23 @@ exports.startTask = async (req, res) => {
     }
 
     if (!task.useRoleWorkflow || !task.roleAssignments || task.roleAssignments.length === 0) {
-      // Regular task - just mark as in_progress
-      const isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
-      if (!isAssigned) {
-        return res.status(403).json({ error: 'You are not assigned to this task' });
+      // Ensure task isn't already completed/cancelled
+      if (task.status) {
+        const currentStatus = await TaskStatus.findById(task.status).lean();
+        if (currentStatus && (currentStatus.isCompleted || currentStatus.name.toLowerCase() === 'cancelled')) {
+          return res.status(400).json({ error: 'Cannot start a completed or cancelled task' });
+        }
       }
+
+      // Automatically assign user if not already assigned
+      let isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
+      if (!isAssigned) {
+        if (!task.assignees) task.assignees = [];
+        task.assignees.push(userId);
+      }
+
+      const excludeIds = [taskId];
+      if (task.parent) excludeIds.push(task.parent);
 
       // Check for other tasks in progress
       const tasksInProgress = await Task.find({
@@ -624,7 +643,10 @@ exports.startTask = async (req, res) => {
           { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
           { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
         ],
-        _id: { $ne: taskId }
+        $and: [
+          { _id: { $nin: excludeIds } },
+          { parent: { $ne: taskId } }
+        ]
       });
 
       if (tasksInProgress.length > 0) {
@@ -657,13 +679,19 @@ exports.startTask = async (req, res) => {
       });
     }
 
-    // Find user's step
-    const userStepIndex = task.roleAssignments.findIndex(ra =>
+    // Find user's step or attach to first
+    let userStepIndex = task.roleAssignments.findIndex(ra =>
       ra.assignees.some(a => a.toString() === userId.toString())
     );
+    
+    // Automatically fallback to step 0 if not assigned, to allow starting
+    if (userStepIndex === -1 && task.roleAssignments.length > 0) {
+        userStepIndex = Math.max(0, task.currentRoleIndex || 0);
+        task.roleAssignments[userStepIndex].assignees.push(userId);
+    }
 
     if (userStepIndex === -1) {
-      return res.status(403).json({ error: 'You are not assigned to this task' });
+      return res.status(403).json({ error: 'You are not assigned to this task and no roles exist' });
     }
 
     const userStep = task.roleAssignments[userStepIndex];
@@ -673,13 +701,19 @@ exports.startTask = async (req, res) => {
       return res.status(400).json({ error: 'Step is already completed' });
     }
 
+    const excludeIds = [taskId];
+    if (task.parent) excludeIds.push(task.parent);
+
     // Check if user has any other task in progress
     const tasksInProgress = await Task.find({
       $or: [
         { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
         { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
       ],
-      _id: { $ne: taskId } // Exclude current task
+      $and: [
+        { _id: { $nin: excludeIds } },
+        { parent: { $ne: taskId } }
+      ]
     });
 
     if (tasksInProgress.length > 0) {
@@ -698,7 +732,8 @@ exports.startTask = async (req, res) => {
       if (task.currentRoleIndex === -1) {
         task.currentRoleIndex = userStepIndex;
       }
-
+      
+      task.markModified('roleAssignments');
       await task.save();
 
       // Create activity entry
@@ -726,6 +761,77 @@ exports.startTask = async (req, res) => {
     });
   } catch (error) {
     console.error('Error starting task:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Pause task step
+exports.pauseTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const userId = req.user._id;
+
+    const task = await Task.findById(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Determine workflow type
+    const isSequential = task.useSequentialWorkflow && task.sequentialAssignees && task.sequentialAssignees.length > 0;
+    const isRole = task.useRoleWorkflow && task.roleAssignments && task.roleAssignments.length > 0;
+
+    if (isSequential) {
+      // Delegate to sequential pause handler
+      return exports.pauseSequentialTask(req, res);
+    }
+
+    if (isRole) {
+      // Find user's step
+      let userStepIndex = task.roleAssignments.findIndex(ra =>
+        ra.assignees.some(a => a.toString() === userId.toString())
+      );
+
+      if (userStepIndex === -1 && task.roleAssignments.length > 0) {
+          userStepIndex = Math.max(0, task.currentRoleIndex || 0);
+      }
+
+      if (userStepIndex === -1) {
+        return res.status(403).json({ error: 'Task cannot be paused: No assigned step found' });
+      }
+
+      const userStep = task.roleAssignments[userStepIndex];
+      if (userStep.status !== 'active' && userStep.status !== 'in_progress') {
+        return res.status(400).json({ error: `Task cannot be paused: Current step is ${userStep.status}` });
+      }
+
+      userStep.status = 'paused';
+      task.markModified('roleAssignments');
+      await task.save();
+
+      await TaskActivity.create({
+        task: taskId,
+        taskStep: userStep._id,
+        action: 'paused',
+        performedBy: userId
+      });
+
+      return res.json({ message: 'Task paused' });
+    }
+
+    // Regular task logic
+    const pausedStatus = await TaskStatus.findOne({ name: /^paused$/i }).lean();
+    if (pausedStatus) {
+      task.status = pausedStatus._id;
+    }
+    await task.save();
+    await TaskActivity.create({
+      task: taskId,
+      action: 'paused',
+      performedBy: userId
+    });
+    return res.json({ message: 'Task paused' });
+  } catch (error) {
+    console.error('Error pausing task:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -825,9 +931,10 @@ exports.completeTask = async (req, res) => {
       }));
     }
 
-    // Complete the step
+    // Mark step as completed
     userStep.status = 'completed';
     userStep.completedAt = new Date();
+    task.markModified('roleAssignments');
 
     // Move to next step if exists
     const nextStepIndex = userStepIndex + 1;
@@ -1049,9 +1156,15 @@ exports.startSequentialTask = async (req, res) => {
     }
 
     // Find user's assignee entry
-    const userAssigneeIndex = task.sequentialAssignees.findIndex(sa =>
+    let userAssigneeIndex = task.sequentialAssignees.findIndex(sa =>
       sa.user._id.toString() === userId.toString()
     );
+
+    // If not found, forcibly append them to allow jumping in
+    if (userAssigneeIndex === -1 && task.sequentialAssignees) {
+      userAssigneeIndex = Math.max(0, task.currentAssigneeIndex || 0);
+      task.sequentialAssignees[userAssigneeIndex].user = userId;
+    }
 
     if (userAssigneeIndex === -1) {
       return res.status(403).json({ error: 'You are not assigned to this task' });
@@ -1064,13 +1177,19 @@ exports.startSequentialTask = async (req, res) => {
       return res.status(400).json({ error: 'You have already completed this task' });
     }
 
+    const excludeIds = [taskId];
+    if (task.parent) excludeIds.push(task.parent);
+
     // Check if user has any other task in progress
     const tasksInProgress = await Task.find({
       $or: [
         { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
         { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
       ],
-      _id: { $ne: taskId } // Exclude current task
+      $and: [
+        { _id: { $nin: excludeIds } },
+        { parent: { $ne: taskId } }
+      ]
     });
 
     if (tasksInProgress.length > 0) {
