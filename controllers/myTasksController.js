@@ -276,6 +276,7 @@ exports.getMyTaskDetails = async (req, res) => {
       .populate('roleAssignments.handoff.handoffBy', 'name email')
       .populate('sequentialAssignees.user', 'name email profile')
       .populate('assignees', 'name email profile')
+      .populate('activeUser', 'name email profile')
       .populate('createdBy', 'name email');
 
     if (!task) {
@@ -703,21 +704,25 @@ exports.startTask = async (req, res) => {
         task.status = statusInProgress._id;
       }
 
+      const wasPaused = !!task.pausedAt;
       task.activeUser = userId;
+      task.pausedAt = null;
       task.startDate = task.startDate || new Date();
       await task.save();
 
       await TaskActivity.create({
         task: taskId,
-        action: 'started',
+        action: wasPaused ? 'resumed' : 'started',
         performedBy: userId
       });
 
       return res.json({
-        message: 'Task started',
+        message: wasPaused ? 'Task resumed' : 'Task started',
         task: {
           _id: task._id,
-          status: task.status
+          status: task.status,
+          activeUser: userId,
+          pausedAt: null
         }
       });
     }
@@ -866,18 +871,28 @@ exports.pauseTask = async (req, res) => {
       return res.status(403).json({ error: 'You are not currently working on this task' });
     }
 
+    // Use "Paused" status if available, otherwise keep status and rely on pausedAt flag
     const pausedStatus = await TaskStatus.findOne({ name: /^paused$/i }).lean();
     if (pausedStatus) {
       task.status = pausedStatus._id;
     }
     task.activeUser = null;
+    task.pausedAt = new Date();
     await task.save();
     await TaskActivity.create({
       task: taskId,
       action: 'paused',
       performedBy: userId
     });
-    return res.json({ message: 'Task paused' });
+    return res.json({
+      message: 'Task paused',
+      task: {
+        _id: task._id,
+        status: task.status,
+        activeUser: null,
+        pausedAt: task.pausedAt
+      }
+    });
   } catch (error) {
     console.error('Error pausing task:', error);
     res.status(500).json({ error: error.message });
@@ -926,6 +941,7 @@ exports.completeTask = async (req, res) => {
         task.status = statusCompleted._id;
       }
       task.activeUser = null;
+      task.pausedAt = null;
 
       let documents = [];
       if (req.files && req.files.length > 0) {

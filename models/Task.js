@@ -174,6 +174,11 @@ const taskSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  // For regular tasks: timestamp when the task was paused (null when not paused)
+  pausedAt: {
+    type: Date,
+    default: null
+  },
   duration: {
     value: {
       type: Number,
