@@ -168,6 +168,12 @@ const taskSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // For regular tasks (no workflow): tracks the user currently working on it
+  activeUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
   duration: {
     value: {
       type: Number,

@@ -304,7 +304,7 @@ exports.getMyTaskDetails = async (req, res) => {
 
     const hasOtherTaskInProgress = tasksInProgress.length > 0;
 
-    const subtasks = await Task.find({ 
+    const rawSubtasks = await Task.find({
       parent: taskId,
       $or: [
         { 'roleAssignments.assignees': userId },
@@ -317,7 +317,26 @@ exports.getMyTaskDetails = async (req, res) => {
       .populate('roleAssignments.assignees', 'name email profile projectRole')
       .populate('sequentialAssignees.user', 'name email profile')
       .populate('assignees', 'name email profile')
+      .populate('activeUser', 'name email profile')
       .sort('order');
+
+    const subtasks = await Promise.all(rawSubtasks.map(async (st) => {
+      const stObj = st.toObject();
+      const statusName = st.status?.name || '';
+      if (statusName.match(/^in.progress$/i)) {
+        if (stObj.activeUser) {
+          stObj.activeStartedBy = stObj.activeUser;
+        } else {
+          const lastStart = await TaskActivity.findOne({ task: st._id, action: 'started' })
+            .populate('performedBy', 'name email profile')
+            .sort({ createdAt: -1 });
+          if (lastStart) {
+            stObj.activeStartedBy = lastStart.performedBy;
+          }
+        }
+      }
+      return stObj;
+    }));
 
     // Check if user is assigned to this task (sequential, role, or regular)
     let isAssigned = false;
@@ -644,6 +663,11 @@ exports.startTask = async (req, res) => {
         }
       }
 
+      // Block if another user is already actively working on this task
+      if (task.activeUser && task.activeUser.toString() !== userId.toString()) {
+        return res.status(400).json({ error: 'Another user is currently working on this task' });
+      }
+
       // Automatically assign user if not already assigned
       let isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
       if (!isAssigned) {
@@ -658,7 +682,8 @@ exports.startTask = async (req, res) => {
       const tasksInProgress = await Task.find({
         $or: [
           { 'roleAssignments.assignees': userId, 'roleAssignments.status': { $in: ['active', 'in_progress'] } },
-          { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' }
+          { 'sequentialAssignees.user': userId, 'sequentialAssignees.status': 'in_progress' },
+          { activeUser: userId }
         ],
         $and: [
           { _id: { $nin: excludeIds } },
@@ -678,6 +703,7 @@ exports.startTask = async (req, res) => {
         task.status = statusInProgress._id;
       }
 
+      task.activeUser = userId;
       task.startDate = task.startDate || new Date();
       await task.save();
 
@@ -835,11 +861,16 @@ exports.pauseTask = async (req, res) => {
       return res.json({ message: 'Task paused' });
     }
 
-    // Regular task logic
+    // Regular task logic - only the user currently working on it can pause
+    if (!task.activeUser || task.activeUser.toString() !== userId.toString()) {
+      return res.status(403).json({ error: 'You are not currently working on this task' });
+    }
+
     const pausedStatus = await TaskStatus.findOne({ name: /^paused$/i }).lean();
     if (pausedStatus) {
       task.status = pausedStatus._id;
     }
+    task.activeUser = null;
     await task.save();
     await TaskActivity.create({
       task: taskId,
@@ -880,16 +911,21 @@ exports.completeTask = async (req, res) => {
     }
 
     if (!task.useRoleWorkflow || !task.roleAssignments || task.roleAssignments.length === 0) {
-      // Regular task
+      // Regular task - only the user currently working on it can complete
       const isAssigned = task.assignees && task.assignees.some(a => a.toString() === userId.toString());
       if (!isAssigned) {
         return res.status(403).json({ error: 'You are not assigned to this task' });
+      }
+
+      if (!task.activeUser || task.activeUser.toString() !== userId.toString()) {
+        return res.status(403).json({ error: 'You are not currently working on this task' });
       }
 
       const statusCompleted = await TaskStatus.findOne({ name: /^completed$/i }).lean();
       if (statusCompleted) {
         task.status = statusCompleted._id;
       }
+      task.activeUser = null;
 
       let documents = [];
       if (req.files && req.files.length > 0) {
