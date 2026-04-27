@@ -304,10 +304,18 @@ exports.getMyTaskDetails = async (req, res) => {
 
     const hasOtherTaskInProgress = tasksInProgress.length > 0;
 
-    const subtasks = await Task.find({ parent: taskId })
+    const subtasks = await Task.find({ 
+      parent: taskId,
+      $or: [
+        { 'roleAssignments.assignees': userId },
+        { 'sequentialAssignees.user': userId },
+        { assignees: userId }
+      ]
+    })
       .populate('status', 'name slug color isDefault isCompleted')
       .populate('roleAssignments.role', 'name icon color')
       .populate('roleAssignments.assignees', 'name email profile projectRole')
+      .populate('sequentialAssignees.user', 'name email profile')
       .populate('assignees', 'name email profile')
       .sort('order');
 
