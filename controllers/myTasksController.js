@@ -345,9 +345,9 @@ exports.getMyTaskDetails = async (req, res) => {
           .sort({ createdAt: -1 });
 
         // Determine allowed actions - allow start regardless of workflow order
-        const canStart = !hasOtherTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'active' || userAssignee.status === 'paused');
-        const canPause = userAssignee.status === 'in_progress';
-        const canComplete = userAssignee.status === 'in_progress' || userAssignee.status === 'paused';
+        const canStart = !hasOtherTaskInProgress && (userAssignee.status === 'pending' || userAssignee.status === 'paused');
+        const canPause = userAssignee.status === 'in_progress' || userAssignee.status === 'active';
+        const canComplete = userAssignee.status === 'in_progress' || userAssignee.status === 'active' || userAssignee.status === 'paused';
         const canSendBack = userAssigneeIndex > 0 && (userAssignee.status === 'in_progress' || userAssignee.status === 'active');
 
         return res.json({
@@ -388,7 +388,7 @@ exports.getMyTaskDetails = async (req, res) => {
     // Check role-based workflow
     if (task.roleAssignments && task.roleAssignments.length > 0) {
       const userStepIndex = task.roleAssignments.findIndex(ra =>
-        ra.assignees.some(a => a.toString() === userId.toString())
+        ra.assignees.some(a => (a._id || a).toString() === userId.toString())
       );
 
       if (userStepIndex !== -1) {
@@ -418,8 +418,9 @@ exports.getMyTaskDetails = async (req, res) => {
           .sort({ createdAt: -1 });
 
         // Check eligibility - allow anyone to start regardless of workflow order
-        let canStart = !hasOtherTaskInProgress && (currentStep.status === 'pending' || currentStep.status === 'blocked' || currentStep.status === 'active' || currentStep.status === 'paused');
-        let canComplete = currentStep.status === 'active' || currentStep.status === 'in_progress' || currentStep.status === 'paused';
+        let canStart = !hasOtherTaskInProgress && (currentStep.status === 'pending' || currentStep.status === 'blocked' || currentStep.status === 'paused');
+        let canPause = currentStep.status === 'active' || currentStep.status === 'in_progress';
+        let canComplete = canPause || currentStep.status === 'paused';
         let canSetDuration = true;
         let canSendBack = userStepIndex > 0 && (currentStep.status === 'active' || currentStep.status === 'in_progress');
 
@@ -471,6 +472,7 @@ exports.getMyTaskDetails = async (req, res) => {
           },
           allowedActions: {
             canStart,
+            canPause,
             canComplete,
             canSetDuration,
             canSendBack
