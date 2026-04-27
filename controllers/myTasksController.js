@@ -335,9 +335,18 @@ exports.getMyTaskDetails = async (req, res) => {
             stObj.activeStartedBy = lastStart.performedBy;
           }
         }
+      } else if (statusName.match(/^completed$/i) || statusName.match(/^done$/i)) {
+        const lastComplete = await TaskActivity.findOne({ task: st._id, action: 'completed' })
+          .populate('performedBy', 'name email profile')
+          .sort({ createdAt: -1 });
+        if (lastComplete) {
+          stObj.completedBy = lastComplete.performedBy;
+        }
       }
       return stObj;
     }));
+
+    const taskIdsForActivity = [taskId, ...subtasks.map(s => s._id)];
 
     // Check if user is assigned to this task (sequential, role, or regular)
     let isAssigned = false;
@@ -360,8 +369,9 @@ exports.getMyTaskDetails = async (req, res) => {
           : task.currentAssigneeIndex === userAssigneeIndex;
 
         // Get activity/timeline
-        const activities = await TaskActivity.find({ task: taskId })
+        const activities = await TaskActivity.find({ task: { $in: taskIdsForActivity } })
           .populate('performedBy', 'name email profile')
+          .populate('task', 'title')
           .sort({ createdAt: -1 });
 
         // Determine allowed actions - allow start regardless of workflow order
@@ -435,9 +445,10 @@ exports.getMyTaskDetails = async (req, res) => {
         const totalDurationMinutes = allDurations.reduce((sum, d) => sum + (d.durationMinutes || 0), 0);
 
         // Get activity/timeline
-        const activities = await TaskActivity.find({ task: taskId })
+        const activities = await TaskActivity.find({ task: { $in: taskIdsForActivity } })
           .populate('performedBy', 'name email profile')
           .populate('sentBackTo', 'name email')
+          .populate('task', 'title')
           .sort({ createdAt: -1 });
 
         // Check eligibility - allow anyone to start regardless of workflow order
@@ -521,8 +532,9 @@ exports.getMyTaskDetails = async (req, res) => {
         isAssigned = true;
 
         // Get activity/timeline
-        const activities = await TaskActivity.find({ task: taskId })
+        const activities = await TaskActivity.find({ task: { $in: taskIdsForActivity } })
           .populate('performedBy', 'name email profile')
+          .populate('task', 'title')
           .sort({ createdAt: -1 });
 
         return res.json({
