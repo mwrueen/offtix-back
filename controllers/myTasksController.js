@@ -358,6 +358,9 @@ exports.getMyTaskDetails = async (req, res) => {
             project: task.project,
             status: task.status,
             priority: task.priority,
+            useSequentialWorkflow: true,
+            sequentialAssignees: task.sequentialAssignees,
+            currentAssigneeIndex: task.currentAssigneeIndex,
             createdAt: task.createdAt,
             updatedAt: task.updatedAt
           },
@@ -431,6 +434,10 @@ exports.getMyTaskDetails = async (req, res) => {
             description: task.description,
             project: task.project,
             status: task.status,
+            priority: task.priority,
+            useRoleWorkflow: true,
+            roleAssignments: task.roleAssignments,
+            currentRoleIndex: task.currentRoleIndex,
             createdAt: task.createdAt,
             updatedAt: task.updatedAt
           },
