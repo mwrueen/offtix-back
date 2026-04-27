@@ -306,12 +306,7 @@ exports.getMyTaskDetails = async (req, res) => {
     const hasOtherTaskInProgress = tasksInProgress.length > 0;
 
     const rawSubtasks = await Task.find({
-      parent: taskId,
-      $or: [
-        { 'roleAssignments.assignees': userId },
-        { 'sequentialAssignees.user': userId },
-        { assignees: userId }
-      ]
+      parent: taskId
     })
       .populate('status', 'name slug color isDefault isCompleted')
       .populate('roleAssignments.role', 'name icon color')
@@ -324,7 +319,7 @@ exports.getMyTaskDetails = async (req, res) => {
     const subtasks = await Promise.all(rawSubtasks.map(async (st) => {
       const stObj = st.toObject();
       const statusName = st.status?.name || '';
-      if (statusName.match(/^in.progress$/i)) {
+      if (statusName.match(/^(in.progress|paused)$/i) || st.activeUser || st.pausedAt) {
         if (stObj.activeUser) {
           stObj.activeStartedBy = stObj.activeUser;
         } else {
@@ -724,7 +719,7 @@ exports.startTask = async (req, res) => {
 
       await TaskActivity.create({
         task: taskId,
-        action: wasPaused ? 'resumed' : 'started',
+        action: 'started',
         performedBy: userId
       });
 
