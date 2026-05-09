@@ -1,6 +1,29 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
+const Company = require('../models/Company');
 const TaskActivity = require('../models/TaskActivity');
+
+/**
+ * Recursively collect all descendant user IDs from the reporting tree.
+ * members: array of company.members (each has user._id and reportsTo as ObjectId or null)
+ * rootUserId: the starting user whose subordinates we want
+ */
+function collectSubordinates(members, rootUserId) {
+  const result = new Set();
+  const queue = [rootUserId.toString()];
+  while (queue.length) {
+    const current = queue.shift();
+    for (const m of members) {
+      const uid = m.user?._id?.toString() || m.user?.toString();
+      const reportsTo = m.reportsTo?._id?.toString() || m.reportsTo?.toString() || null;
+      if (reportsTo === current && !result.has(uid)) {
+        result.add(uid);
+        queue.push(uid);
+      }
+    }
+  }
+  return Array.from(result);
+}
 
 // Get team members and their current task activity
 exports.getTeamActivity = async (req, res) => {
@@ -8,13 +31,14 @@ exports.getTeamActivity = async (req, res) => {
     const userId = req.user._id;
     const userRole = req.user.role;
 
-    // Resolve companyId for admin/superadmin
     const companyIdHeader = req.headers['x-company-id'];
     const companyIdQuery = req.query.companyId;
-    const companyId = (companyIdHeader === 'personal' || companyIdQuery === 'personal') ? 'personal' : (companyIdHeader || companyIdQuery);
+    const companyId = (companyIdHeader === 'personal' || companyIdQuery === 'personal')
+      ? 'personal'
+      : (companyIdHeader || companyIdQuery);
 
     const filterProjectId = req.query.projectId;
-    const filterDate = req.query.date; // Expecting YYYY-MM-DD
+    const filterDate = req.query.date;
 
     console.log(`[TeamActivity] Context: User=${userId}, Role=${userRole}, Company=${companyId}, Project=${filterProjectId}`);
 
@@ -34,13 +58,13 @@ exports.getTeamActivity = async (req, res) => {
       if (companyId && companyId !== 'personal') {
         userQuery.company = companyId;
       } else if (companyId === 'personal') {
-        userQuery.company = null; // Find users with no company if in personal mode
+        userQuery.company = null;
       }
       teamMembers = await User.find(userQuery)
         .select('name email role profile createdAt')
         .sort({ name: 1 });
+
     } else if (userRole === 'admin') {
-      // Use companyId if provided and not 'personal', otherwise use user's company
       let targetCompanyId = (companyId && companyId !== 'personal') ? companyId : (companyId === 'personal' ? null : req.user.company);
       if (targetCompanyId) {
         teamMembers = await User.find({
@@ -50,17 +74,27 @@ exports.getTeamActivity = async (req, res) => {
           .select('name email role profile createdAt')
           .sort({ name: 1 });
       }
+
     } else {
-      // Regular users
+      // Regular users — show only their direct reports chain (all descendants)
       if (companyId && companyId !== 'personal') {
-        // If viewing a company, show all members of that company
-        teamMembers = await User.find({
-          company: companyId
-        })
-          .select('name email role profile createdAt')
-          .sort({ name: 1 });
+        // Load company members with reportsTo populated
+        const company = await Company.findById(companyId)
+          .populate('members.user', 'name email profile')
+          .populate('members.reportsTo', '_id');
+
+        if (company) {
+          const subordinateIds = collectSubordinates(company.members, userId);
+
+          if (subordinateIds.length > 0) {
+            teamMembers = await User.find({ _id: { $in: subordinateIds } })
+              .select('name email role profile createdAt')
+              .sort({ name: 1 });
+          }
+          // If no subordinates, teamMembers stays empty — user has no reports
+        }
       } else {
-        // Personal mode or no company specified: discover from tasks
+        // Personal mode: discover via tasks
         const query = {};
         if (filterProjectId) {
           query.project = filterProjectId;
@@ -74,31 +108,15 @@ exports.getTeamActivity = async (req, res) => {
         }
 
         const userTasks = await Task.find(query).select('assignees roleAssignments sequentialAssignees');
-
         const teamMemberIds = new Set();
         userTasks.forEach(task => {
-          if (task.assignees) {
-            task.assignees.forEach(assignee => {
-              if (assignee) teamMemberIds.add(assignee.toString());
-            });
-          }
-          if (task.roleAssignments) {
-            task.roleAssignments.forEach(ra => {
-              if (ra.assignees) {
-                ra.assignees.forEach(assignee => {
-                  if (assignee) teamMemberIds.add(assignee.toString());
-                });
-              }
-            });
-          }
-          if (task.sequentialAssignees) {
-            task.sequentialAssignees.forEach(sa => {
-              if (sa.user) {
-                const id = sa.user._id ? sa.user._id.toString() : sa.user.toString();
-                teamMemberIds.add(id);
-              }
-            });
-          }
+          (task.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()));
+          (task.roleAssignments || []).forEach(ra =>
+            (ra.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()))
+          );
+          (task.sequentialAssignees || []).forEach(sa => {
+            if (sa.user) teamMemberIds.add(sa.user._id ? sa.user._id.toString() : sa.user.toString());
+          });
         });
 
         if (teamMemberIds.size > 0) {
@@ -111,22 +129,18 @@ exports.getTeamActivity = async (req, res) => {
 
     console.log(`[TeamActivity] Found ${teamMembers.length} team members`);
 
-    // For each team member, find their task status based on filters
     const teamActivity = await Promise.all(
       teamMembers.map(async (member) => {
         const memberId = member._id;
 
-        // Find in-progress task with project filter
+        // In-progress task
         const inProgressQuery = {
           $or: [
             { sequentialAssignees: { $elemMatch: { user: memberId, status: 'in_progress' } } },
             { roleAssignments: { $elemMatch: { assignees: memberId, status: { $in: ['active', 'in_progress'] } } } }
           ]
         };
-
-        if (filterProjectId) {
-          inProgressQuery.project = filterProjectId;
-        }
+        if (filterProjectId) inProgressQuery.project = filterProjectId;
 
         const inProgressTask = await Task.findOne(inProgressQuery)
           .populate('project', 'title')
@@ -134,35 +148,21 @@ exports.getTeamActivity = async (req, res) => {
           .select('title project status createdAt updatedAt');
 
         if (inProgressTask) {
-          // Find when they started this task, potentially within date range
           const startActivityQuery = {
             task: inProgressTask._id,
             performedBy: memberId,
             action: 'started'
           };
-
-          if (filterDate) {
-            startActivityQuery.createdAt = dateQuery.createdAt;
-          }
+          if (filterDate) startActivityQuery.createdAt = dateQuery.createdAt;
 
           const startActivity = await TaskActivity.findOne(startActivityQuery)
             .sort({ createdAt: -1 })
             .select('createdAt');
 
-          // If filtering by date, we show in-progress tasks if:
-          // 1. They started on that date (startActivity exists)
-          // 2. The filter is for today (meaning they are currently in-progress)
           const isToday = filterDate === new Date().toISOString().split('T')[0];
-
           if (!filterDate || (filterDate && (startActivity || isToday))) {
             return {
-              user: {
-                _id: member._id,
-                name: member.name,
-                email: member.email,
-                role: member.role,
-                profile: member.profile
-              },
+              user: { _id: member._id, name: member.name, email: member.email, role: member.role, profile: member.profile },
               status: 'in_progress',
               currentTask: {
                 _id: inProgressTask._id,
@@ -175,19 +175,11 @@ exports.getTeamActivity = async (req, res) => {
           }
         }
 
-        // Find last paused task with project filter
+        // Paused task
         const pausedQuery = {
-          sequentialAssignees: {
-            $elemMatch: {
-              user: memberId,
-              status: 'paused'
-            }
-          }
+          sequentialAssignees: { $elemMatch: { user: memberId, status: 'paused' } }
         };
-
-        if (filterProjectId) {
-          pausedQuery.project = filterProjectId;
-        }
+        if (filterProjectId) pausedQuery.project = filterProjectId;
 
         const pausedTask = await Task.findOne(pausedQuery)
           .populate('project', 'title')
@@ -196,22 +188,13 @@ exports.getTeamActivity = async (req, res) => {
           .sort({ updatedAt: -1 });
 
         if (pausedTask) {
-          const userAssignee = pausedTask.sequentialAssignees.find(
-            sa => sa.user.toString() === memberId.toString()
-          );
-
+          const userAssignee = pausedTask.sequentialAssignees.find(sa => sa.user.toString() === memberId.toString());
           const pauseDate = userAssignee?.pausedAt || pausedTask.updatedAt;
           const isToday = filterDate === new Date().toISOString().split('T')[0];
 
-          if (!filterDate || (filterDate && (isToday || (new Date(pauseDate) >= dateQuery.createdAt.$gte && new Date(pauseDate) <= dateQuery.createdAt.$lte)))) {
+          if (!filterDate || (filterDate && (isToday || (new Date(pauseDate) >= dateQuery.createdAt?.$gte && new Date(pauseDate) <= dateQuery.createdAt?.$lte)))) {
             return {
-              user: {
-                _id: member._id,
-                name: member.name,
-                email: member.email,
-                role: member.role,
-                profile: member.profile
-              },
+              user: { _id: member._id, name: member.name, email: member.email, role: member.role, profile: member.profile },
               status: 'paused',
               lastTask: {
                 _id: pausedTask._id,
@@ -224,27 +207,18 @@ exports.getTeamActivity = async (req, res) => {
           }
         }
 
-        // Find last completed task with filters
-        const completedActivityQuery = {
-          performedBy: memberId,
-          action: 'completed'
-        };
-
-        if (filterDate) {
-          completedActivityQuery.createdAt = dateQuery.createdAt;
-        }
+        // Last completed task
+        const completedActivityQuery = { performedBy: memberId, action: 'completed' };
+        if (filterDate) completedActivityQuery.createdAt = dateQuery.createdAt;
 
         const completedActivity = await TaskActivity.findOne(completedActivityQuery)
           .sort({ createdAt: -1 })
           .populate('task', 'title project')
           .select('task createdAt');
 
-        if (completedActivity && completedActivity.task) {
-          // If filtering by project, check if the completed task belongs to that project
+        if (completedActivity?.task) {
           const completedTaskQuery = { _id: completedActivity.task._id };
-          if (filterProjectId) {
-            completedTaskQuery.project = filterProjectId;
-          }
+          if (filterProjectId) completedTaskQuery.project = filterProjectId;
 
           const completedTask = await Task.findOne(completedTaskQuery)
             .populate('project', 'title')
@@ -253,13 +227,7 @@ exports.getTeamActivity = async (req, res) => {
 
           if (completedTask) {
             return {
-              user: {
-                _id: member._id,
-                name: member.name,
-                email: member.email,
-                role: member.role,
-                profile: member.profile
-              },
+              user: { _id: member._id, name: member.name, email: member.email, role: member.role, profile: member.profile },
               status: 'idle',
               lastTask: {
                 _id: completedTask._id,
@@ -272,25 +240,17 @@ exports.getTeamActivity = async (req, res) => {
           }
         }
 
-        // No task activity found
         return {
-          user: {
-            _id: member._id,
-            name: member.name,
-            email: member.email,
-            role: member.role,
-            profile: member.profile
-          },
+          user: { _id: member._id, name: member.name, email: member.email, role: member.role, profile: member.profile },
           status: 'idle',
           lastTask: null
         };
       })
     );
 
-    // Sort by status priority: in_progress > paused > idle
     const sortedActivity = teamActivity.sort((a, b) => {
-      const statusPriority = { in_progress: 1, paused: 2, idle: 3 };
-      return statusPriority[a.status] - statusPriority[b.status];
+      const p = { in_progress: 1, paused: 2, idle: 3 };
+      return p[a.status] - p[b.status];
     });
 
     res.json(sortedActivity);
