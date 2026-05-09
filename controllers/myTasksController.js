@@ -915,7 +915,7 @@ exports.completeTask = async (req, res) => {
     }
 
     const { taskId } = req.params;
-    const { note } = req.body;
+    const { note, message, link } = req.body;
     const userId = req.user._id;
 
     if (!note || note.trim().length === 0) {
@@ -968,7 +968,9 @@ exports.completeTask = async (req, res) => {
         action: 'completed',
         performedBy: userId,
         note: note.trim(),
-        documents: documents
+        message: message,
+        documents: documents,
+        metadata: { link: link }
       });
 
       return res.json({
@@ -1037,7 +1039,9 @@ exports.completeTask = async (req, res) => {
       action: 'completed',
       performedBy: userId,
       note: note.trim(),
-      documents: documents
+      message: message,
+      documents: documents,
+      metadata: { link: link }
     });
 
     // Notify next step assignees if exists
@@ -1097,7 +1101,7 @@ exports.sendBackForFix = async (req, res) => {
     }
 
     const { taskId } = req.params;
-    const { note, message } = req.body;
+    const { note, message, link } = req.body;
     const userId = req.user._id;
 
     if (!note || note.trim().length === 0) {
@@ -1148,6 +1152,18 @@ exports.sendBackForFix = async (req, res) => {
     const previousAssignee = previousStep.assignees[0]; // Get first assignee for notification
     const professionalMessage = message || `Hi ${previousAssignee?.name || 'there'}, I reviewed the task submission and found a few items that need adjustment: ${note}. Could you please address these and re-submit? Thanks.`;
 
+    // Handle file uploads
+    let documents = [];
+    if (req.files && req.files.length > 0) {
+      documents = req.files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        path: file.path,
+        size: file.size,
+        uploadedAt: new Date()
+      }));
+    }
+
     const activity = await TaskActivity.create({
       task: taskId,
       taskStep: previousStep._id,
@@ -1155,6 +1171,8 @@ exports.sendBackForFix = async (req, res) => {
       performedBy: userId,
       note: note.trim(),
       message: professionalMessage,
+      documents: documents,
+      metadata: { link: link },
       sentBackTo: previousAssignee?._id || previousStep.assignees[0]
     });
 

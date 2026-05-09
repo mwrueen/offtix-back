@@ -37,7 +37,7 @@ router.post('/:taskId/complete', uploadTaskDocuments.array('files', 10), [
 ], myTasksController.completeTask);
 
 // Send back for fix
-router.post('/:taskId/send-back', [
+router.post('/:taskId/send-back', uploadTaskDocuments.array('files', 10), [
   body('note')
     .trim()
     .isLength({ min: 1 })
