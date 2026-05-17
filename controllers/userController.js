@@ -57,6 +57,38 @@ exports.getUsers = async (req, res) => {
       query = {};
     }
 
+    const search = req.query.search;
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query.$or = [
+        { name: searchRegex },
+        { email: searchRegex }
+      ];
+    }
+
+    const isPaginated = req.query.paginated === 'true';
+
+    if (isPaginated) {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+
+      const [users, total] = await Promise.all([
+        User.find(query).select('-password').skip(skip).limit(limit),
+        User.countDocuments(query)
+      ]);
+
+      return res.json({
+        data: users,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    }
+
     const users = await User.find(query).select('-password');
     res.json(users);
   } catch (error) {
