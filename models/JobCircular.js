@@ -66,6 +66,9 @@ const jobCircularSchema = new mongoose.Schema({
         enum: ['active', 'closed', 'paused', 'draft'],
         default: 'active'
     },
+    deadline: {
+        type: Date
+    },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',

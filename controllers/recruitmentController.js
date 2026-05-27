@@ -24,7 +24,7 @@ function applicantMatchesUser(application, reqUser) {
 // @access  Private (manageRecruitment permission required)
 exports.createCircular = async (req, res) => {
     try {
-        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions } = req.body;
+        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions, deadline } = req.body;
 
         const company = await Company.findById(req.user.company);
         if (!company) {
@@ -56,6 +56,7 @@ exports.createCircular = async (req, res) => {
             mandatorySkills,
             niceToHaveSkills,
             questions,
+            deadline: deadline || undefined,
             createdBy: req.user._id
         });
 
@@ -71,7 +72,17 @@ exports.createCircular = async (req, res) => {
 // @access  Public
 exports.getPublicCirculars = async (req, res) => {
     try {
-        const circulars = await JobCircular.find({ status: 'active' })
+        const hiredApplications = await Application.find({ status: 'hired' }).distinct('jobCircular');
+        const now = new Date();
+        const circulars = await JobCircular.find({
+            status: 'active',
+            _id: { $nin: hiredApplications },
+            $or: [
+                { deadline: { $gte: now } },
+                { deadline: null },
+                { deadline: { $exists: false } }
+            ]
+        })
             .populate('company', 'name logo website')
             .sort({ createdAt: -1 });
         res.json(circulars);
@@ -631,7 +642,7 @@ exports.getCompanyStats = async (req, res) => {
 // @access  Private
 exports.updateCircular = async (req, res) => {
     try {
-        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions, status } = req.body;
+        const { title, role, salaryRange, experience, description, jobNature, location, benefits, mandatorySkills, niceToHaveSkills, questions, status, deadline } = req.body;
         const circular = await JobCircular.findById(req.params.id);
 
         if (!circular) return res.status(404).json({ message: 'Circular not found' });
@@ -662,6 +673,9 @@ exports.updateCircular = async (req, res) => {
         circular.niceToHaveSkills = niceToHaveSkills || circular.niceToHaveSkills;
         circular.questions = questions || circular.questions;
         circular.status = status || circular.status;
+        if (deadline !== undefined) {
+            circular.deadline = deadline || undefined;
+        }
 
         await circular.save();
         res.json(circular);
