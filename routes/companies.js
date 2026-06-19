@@ -65,7 +65,7 @@ router.get('/:id/workforce', authenticate, companyController.getWorkforce);
 
 // Organization Hierarchy Routes
 router.get('/:id/organogram', authenticate, companyController.getOrganogram);
-router.put('/:id/reporting-manager', authenticate, requirePermission('manageCompanySettings'), companyController.updateReportingManager);
+router.put('/:id/reporting-manager', authenticate, requirePermission('editEmployee'), companyController.updateReportingManager);
 router.put('/:id/designation-level', authenticate, requirePermission('manageCompanySettings'), companyController.updateDesignationLevel);
 
 module.exports = router;

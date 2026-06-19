@@ -3,25 +3,39 @@ const User = require('../models/User');
 const Company = require('../models/Company');
 const TaskActivity = require('../models/TaskActivity');
 
-/**
- * Recursively collect all descendant user IDs from the reporting tree.
- * members: array of company.members (each has user._id and reportsTo as ObjectId or null)
- * rootUserId: the starting user whose subordinates we want
- */
-function collectSubordinates(members, rootUserId) {
+function collectTeamMates(members, rootUserId) {
   const result = new Set();
+  
+  // Find the current user's member object
+  const rootMember = members.find(m => (m.user?._id?.toString() || m.user?.toString()) === rootUserId.toString());
+  
+  // If we can't find them, return just themselves
+  if (!rootMember) return [rootUserId.toString()];
+  
+  const rootManagerId = rootMember.reportsTo?._id?.toString() || rootMember.reportsTo?.toString() || null;
+  
+  // 1. Add peers (same manager), including themselves
+  for (const m of members) {
+    const managerId = m.reportsTo?._id?.toString() || m.reportsTo?.toString() || null;
+    if (managerId === rootManagerId) {
+      result.add(m.user?._id?.toString() || m.user?.toString());
+    }
+  }
+  
+  // 2. Add all subordinates (recursive)
   const queue = [rootUserId.toString()];
   while (queue.length) {
     const current = queue.shift();
     for (const m of members) {
       const uid = m.user?._id?.toString() || m.user?.toString();
-      const reportsTo = m.reportsTo?._id?.toString() || m.reportsTo?.toString() || null;
-      if (reportsTo === current && !result.has(uid)) {
+      const managerId = m.reportsTo?._id?.toString() || m.reportsTo?.toString() || null;
+      if (managerId === current && !result.has(uid)) {
         result.add(uid);
         queue.push(uid);
       }
     }
   }
+  
   return Array.from(result);
 }
 
@@ -53,77 +67,62 @@ exports.getTeamActivity = async (req, res) => {
 
     let teamMembers = [];
 
-    if (userRole === 'superadmin') {
-      const userQuery = {};
-      if (companyId && companyId !== 'personal') {
-        userQuery.company = companyId;
-      } else if (companyId === 'personal') {
-        userQuery.company = null;
-      }
-      teamMembers = await User.find(userQuery)
-        .select('name email role profile createdAt')
-        .sort({ name: 1 });
+    if (companyId && companyId !== 'personal') {
+      // Show team mates based on organogram for everyone in a company
+      const company = await Company.findById(companyId)
+        .populate('members.user', 'name email profile')
+        .populate('members.reportsTo', '_id');
 
-    } else if (userRole === 'admin') {
-      let targetCompanyId = (companyId && companyId !== 'personal') ? companyId : (companyId === 'personal' ? null : req.user.company);
-      if (targetCompanyId) {
-        teamMembers = await User.find({
-          company: targetCompanyId,
-          role: { $in: ['user', 'admin'] }
-        })
-          .select('name email role profile createdAt')
-          .sort({ name: 1 });
-      }
-
-    } else {
-      // Regular users — show only their direct reports chain (all descendants)
-      if (companyId && companyId !== 'personal') {
-        // Load company members with reportsTo populated
-        const company = await Company.findById(companyId)
-          .populate('members.user', 'name email profile')
-          .populate('members.reportsTo', '_id');
-
-        if (company) {
-          const subordinateIds = collectSubordinates(company.members, userId);
-
-          if (subordinateIds.length > 0) {
-            teamMembers = await User.find({ _id: { $in: subordinateIds } })
-              .select('name email role profile createdAt')
-              .sort({ name: 1 });
-          }
-          // If no subordinates, teamMembers stays empty — user has no reports
-        }
-      } else {
-        // Personal mode: discover via tasks
-        const query = {};
-        if (filterProjectId) {
-          query.project = filterProjectId;
+      if (company) {
+        // Find if user is owner. If so, they are at top and should see everyone.
+        const isOwner = company.owner.toString() === userId.toString();
+        
+        let teamMemberIds = [];
+        if (isOwner) {
+          // Owner sees everyone
+          teamMemberIds = company.members.map(m => m.user?._id?.toString() || m.user?.toString());
+          teamMemberIds.push(userId.toString());
         } else {
-          query.$or = [
-            { createdBy: userId },
-            { assignees: userId },
-            { 'roleAssignments.assignees': userId },
-            { 'sequentialAssignees.user': userId }
-          ];
+          // Others see peers and subordinates
+          teamMemberIds = collectTeamMates(company.members, userId);
         }
 
-        const userTasks = await Task.find(query).select('assignees roleAssignments sequentialAssignees');
-        const teamMemberIds = new Set();
-        userTasks.forEach(task => {
-          (task.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()));
-          (task.roleAssignments || []).forEach(ra =>
-            (ra.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()))
-          );
-          (task.sequentialAssignees || []).forEach(sa => {
-            if (sa.user) teamMemberIds.add(sa.user._id ? sa.user._id.toString() : sa.user.toString());
-          });
-        });
-
-        if (teamMemberIds.size > 0) {
-          teamMembers = await User.find({ _id: { $in: Array.from(teamMemberIds) } })
+        if (teamMemberIds.length > 0) {
+          teamMembers = await User.find({ _id: { $in: Array.from(new Set(teamMemberIds)) } })
             .select('name email role profile createdAt')
             .sort({ name: 1 });
         }
+      }
+    } else {
+      // Personal mode: discover via tasks
+      const query = {};
+      if (filterProjectId) {
+        query.project = filterProjectId;
+      } else {
+        query.$or = [
+          { createdBy: userId },
+          { assignees: userId },
+          { 'roleAssignments.assignees': userId },
+          { 'sequentialAssignees.user': userId }
+        ];
+      }
+
+      const userTasks = await Task.find(query).select('assignees roleAssignments sequentialAssignees');
+      const teamMemberIds = new Set();
+      userTasks.forEach(task => {
+        (task.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()));
+        (task.roleAssignments || []).forEach(ra =>
+          (ra.assignees || []).forEach(a => a && teamMemberIds.add(a.toString()))
+        );
+        (task.sequentialAssignees || []).forEach(sa => {
+          if (sa.user) teamMemberIds.add(sa.user._id ? sa.user._id.toString() : sa.user.toString());
+        });
+      });
+
+      if (teamMemberIds.size > 0) {
+        teamMembers = await User.find({ _id: { $in: Array.from(teamMemberIds) } })
+          .select('name email role profile createdAt')
+          .sort({ name: 1 });
       }
     }
 
