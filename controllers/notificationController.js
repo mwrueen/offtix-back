@@ -1,90 +1,24 @@
-const Notification = require('../models/Notification');
+const asyncHandler = require('../utils/asyncHandler');
+const notificationService = require('../services/notificationService');
 
-// Get user's notifications
-exports.getUserNotifications = async (req, res) => {
-  try {
-    const companyId = req.headers['x-company-id'] || req.query.companyId || null;
-    const filter = { user: req.user._id };
-    if (companyId) filter.company = companyId;
+exports.getUserNotifications = asyncHandler(async (req, res) => {
+  const companyId = req.headers['x-company-id'] || req.query.companyId || null;
+  const result = await notificationService.getUserNotifications(req.user._id, companyId);
+  res.json(result);
+});
 
-    const notifications = await Notification.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(50);
+exports.markAsRead = asyncHandler(async (req, res) => {
+  const notification = await notificationService.markAsRead(req.params.notificationId, req.user._id);
+  res.json(notification);
+});
 
-    const unreadCount = await Notification.countDocuments({ ...filter, isRead: false });
+exports.markAllAsRead = asyncHandler(async (req, res) => {
+  const result = await notificationService.markAllAsRead(req.user._id);
+  res.json(result);
+});
 
-    res.json({
-      notifications,
-      unreadCount
-    });
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Mark notification as read
-exports.markAsRead = async (req, res) => {
-  try {
-    const { notificationId } = req.params;
-
-    const notification = await Notification.findById(notificationId);
-
-    if (!notification) {
-      return res.status(404).json({ message: 'Notification not found' });
-    }
-
-    if (notification.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Unauthorized' });
-    }
-
-    notification.isRead = true;
-    notification.readAt = new Date();
-    await notification.save();
-
-    res.json(notification);
-  } catch (error) {
-    console.error('Error marking notification as read:', error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Mark all notifications as read
-exports.markAllAsRead = async (req, res) => {
-  try {
-    await Notification.updateMany(
-      { user: req.user._id, isRead: false },
-      { isRead: true, readAt: new Date() }
-    );
-
-    res.json({ message: 'All notifications marked as read' });
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Delete notification
-exports.deleteNotification = async (req, res) => {
-  try {
-    const { notificationId } = req.params;
-
-    const notification = await Notification.findById(notificationId);
-
-    if (!notification) {
-      return res.status(404).json({ message: 'Notification not found' });
-    }
-
-    if (notification.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Unauthorized' });
-    }
-
-    await Notification.findByIdAndDelete(notificationId);
-
-    res.json({ message: 'Notification deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting notification:', error);
-    res.status(500).json({ message: error.message });
-  }
-};
+exports.deleteNotification = asyncHandler(async (req, res) => {
+  const result = await notificationService.deleteNotification(req.params.notificationId, req.user._id);
+  res.json(result);
+});
 

@@ -73,3 +73,120 @@ exports.validateTask = [
     .isIn(['minutes', 'hours', 'days', 'weeks'])
     .withMessage('Invalid duration unit')
 ];
+
+exports.validateRecruitmentCircular = [
+  body('title')
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Title must be at least 2 characters long'),
+  body('role')
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Role must be at least 2 characters long'),
+  body('description')
+    .trim()
+    .isLength({ min: 10 })
+    .withMessage('Description must be at least 10 characters long'),
+  body('salaryRange.min')
+    .isNumeric()
+    .withMessage('Minimum salary must be a number'),
+  body('salaryRange.max')
+    .isNumeric()
+    .withMessage('Maximum salary must be a number'),
+  body('experience')
+    .isNumeric()
+    .withMessage('Experience must be a number'),
+  body('jobNature')
+    .optional()
+    .isIn(['remote', 'on-site', 'hybrid'])
+    .withMessage('Invalid job nature'),
+  body('deadline')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Deadline must be a valid date')
+];
+
+exports.validateRecruitmentCircularUpdate = [
+  body('title')
+    .optional()
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Title must be at least 2 characters long'),
+  body('role')
+    .optional()
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Role must be at least 2 characters long'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ min: 10 })
+    .withMessage('Description must be at least 10 characters long'),
+  body('salaryRange.min')
+    .optional()
+    .isNumeric()
+    .withMessage('Minimum salary must be a number'),
+  body('salaryRange.max')
+    .optional()
+    .isNumeric()
+    .withMessage('Maximum salary must be a number'),
+  body('experience')
+    .optional()
+    .isNumeric()
+    .withMessage('Experience must be a number'),
+  body('jobNature')
+    .optional()
+    .isIn(['remote', 'on-site', 'hybrid'])
+    .withMessage('Invalid job nature'),
+  body('status')
+    .optional()
+    .isIn(['active', 'closed', 'paused', 'draft'])
+    .withMessage('Invalid circular status'),
+  body('deadline')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Deadline must be a valid date')
+];
+
+exports.validateJobApplication = [
+  body('applicant.name')
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Applicant name must be at least 2 characters long'),
+  body('applicant.email')
+    .isEmail()
+    .withMessage('Please provide a valid applicant email')
+    .normalizeEmail({ gmail_remove_dots: false })
+];
+
+exports.validateApplicationStatus = [
+  body('status')
+    .isIn(['pending', 'shortlisted', 'interviewed', 'offered', 'hired', 'rejected'])
+    .withMessage('Invalid application status'),
+  body('interviewDate')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Interview date must be a valid date'),
+  body('notes')
+    .optional()
+    .isString()
+    .withMessage('Notes must be a string')
+];
+
+exports.validateHireOffer = [
+  body('salary')
+    .isNumeric()
+    .withMessage('Salary must be a number'),
+  body('roleDescription')
+    .optional()
+    .isString()
+    .withMessage('Role description must be a string'),
+  body('facilities')
+    .optional()
+    .isString()
+    .withMessage('Facilities must be a string'),
+  body('policies')
+    .optional()
+    .isString()
+    .withMessage('Policies must be a string')
+];

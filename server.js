@@ -8,6 +8,7 @@ const path = require('path');
 const session = require('express-session');
 const passport = require('./config/passport');
 const { connectDatabase } = require('./config/database');
+const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
@@ -109,6 +110,9 @@ app.use('/api/skills', require('./routes/skills.js'));
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });
 });
+
+// 404 handler for unmatched API routes (returns JSON instead of HTML)
+app.use('/api', notFound);
 
 // Socket.io authentication middleware
 io.use((socket, next) => {
@@ -291,6 +295,9 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   });
 }
+
+// Centralized error-handling middleware (must be registered last)
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

@@ -3,10 +3,11 @@ const router = express.Router();
 const passport = require('passport');
 const authController = require('../controllers/authController');
 const { validateSignup, validateSignin } = require('../middleware/validation');
+const validate = require('../middleware/validate');
 
 // Traditional auth routes
-router.post('/signup', validateSignup, authController.signup);
-router.post('/signin', validateSignin, authController.signin);
+router.post('/signup', validateSignup, validate, authController.signup);
+router.post('/signin', validateSignin, validate, authController.signin);
 
 // Google OAuth routes
 router.get('/google', 

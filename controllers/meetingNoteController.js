@@ -1,156 +1,31 @@
-const MeetingNote = require('../models/MeetingNote');
-const Project = require('../models/Project');
-const { validationResult } = require('express-validator');
+const asyncHandler = require('../utils/asyncHandler');
+const meetingNoteService = require('../services/meetingNoteService');
 
-exports.getMeetingNotes = async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    
-    // Verify project access
-    const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    
-    let hasAccess = false;
-    const user = await require('../models/User').findById(req.user._id);
-    if (user && user.role === 'superadmin') hasAccess = true;
-    else if (project.owner.equals(req.user._id)) hasAccess = true;
-    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
-    else if (project.company) {
-      const company = await require('../models/Company').findById(project.company);
-      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
-    }
-    
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+exports.getMeetingNotes = asyncHandler(async (req, res) => {
+  const notes = await meetingNoteService.getMeetingNotes(req.params.projectId, req.user._id);
+  res.json(notes);
+});
 
-    const meetingNotes = await MeetingNote.find({ project: projectId })
-      .populate('organizer', 'name email')
-      .populate('attendees.user', 'name email')
-      .populate('agenda.presenter', 'name email')
-      .populate('actionItems.assignedTo', 'name email')
-      .populate('decisions.decidedBy', 'name email')
-      .sort({ meetingDate: -1 });
-    
-    res.json(meetingNotes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+exports.createMeetingNote = asyncHandler(async (req, res) => {
+  const note = await meetingNoteService.createMeetingNote(req.params.projectId, req.user._id, req.body);
+  res.status(201).json(note);
+});
 
-exports.createMeetingNote = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+exports.updateMeetingNote = asyncHandler(async (req, res) => {
+  const note = await meetingNoteService.updateMeetingNote(
+    req.params.projectId,
+    req.params.meetingId,
+    req.user._id,
+    req.body
+  );
+  res.json(note);
+});
 
-    const { projectId } = req.params;
-    
-    // Verify project access
-    const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    
-    let hasAccess = false;
-    const user = await require('../models/User').findById(req.user._id);
-    if (user && user.role === 'superadmin') hasAccess = true;
-    else if (project.owner.equals(req.user._id)) hasAccess = true;
-    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
-    else if (project.company) {
-      const company = await require('../models/Company').findById(project.company);
-      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
-    }
-    
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const meetingNote = new MeetingNote({
-      ...req.body,
-      project: projectId,
-      organizer: req.user._id
-    });
-    
-    await meetingNote.save();
-    await meetingNote.populate('organizer', 'name email');
-    await meetingNote.populate('attendees.user', 'name email');
-    
-    res.status(201).json(meetingNote);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
-
-exports.updateMeetingNote = async (req, res) => {
-  try {
-    const { projectId, meetingId } = req.params;
-    
-    const meetingNote = await MeetingNote.findOne({ _id: meetingId, project: projectId });
-    
-    if (!meetingNote) {
-      return res.status(404).json({ error: 'Meeting note not found' });
-    }
-
-    // Verify project access
-    const project = await Project.findById(projectId);
-    let hasAccess = false;
-    const user = await require('../models/User').findById(req.user._id);
-    if (user && user.role === 'superadmin') hasAccess = true;
-    else if (project.owner.equals(req.user._id)) hasAccess = true;
-    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
-    else if (project.company) {
-      const company = await require('../models/Company').findById(project.company);
-      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
-    }
-    
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    Object.assign(meetingNote, req.body);
-    await meetingNote.save();
-    await meetingNote.populate('organizer', 'name email');
-    await meetingNote.populate('attendees.user', 'name email');
-    
-    res.json(meetingNote);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
-
-exports.deleteMeetingNote = async (req, res) => {
-  try {
-    const { projectId, meetingId } = req.params;
-    
-    const meetingNote = await MeetingNote.findOne({ _id: meetingId, project: projectId });
-    
-    if (!meetingNote) {
-      return res.status(404).json({ error: 'Meeting note not found' });
-    }
-
-    // Verify project access
-    const project = await Project.findById(projectId);
-    let hasAccess = false;
-    const user = await require('../models/User').findById(req.user._id);
-    if (user && user.role === 'superadmin') hasAccess = true;
-    else if (project.owner.equals(req.user._id)) hasAccess = true;
-    else if (project.members.some(m => (m.user?._id || m.user).toString() === req.user._id.toString())) hasAccess = true;
-    else if (project.company) {
-      const company = await require('../models/Company').findById(project.company);
-      if (company && company.owner.toString() === req.user._id.toString()) hasAccess = true;
-    }
-    
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    await MeetingNote.findByIdAndDelete(meetingId);
-    res.json({ message: 'Meeting note deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+exports.deleteMeetingNote = asyncHandler(async (req, res) => {
+  const result = await meetingNoteService.deleteMeetingNote(
+    req.params.projectId,
+    req.params.meetingId,
+    req.user._id
+  );
+  res.json(result);
+});
