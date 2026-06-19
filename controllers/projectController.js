@@ -311,9 +311,10 @@ exports.updateProject = async (req, res) => {
     const projectData = { ...req.body };
 
     // Authority Check for projectManager assignment
+    // Only the project owner or a superadmin may assign, change or unassign the PM.
     const isOwner = project.owner.equals(req.user._id);
-    if (projectData.projectManager && !isOwner && !isSuperAdmin) {
-      delete projectData.projectManager; // Only owner can change PM
+    if (Object.prototype.hasOwnProperty.call(projectData, 'projectManager') && !isOwner && !isSuperAdmin) {
+      delete projectData.projectManager;
     }
 
     // Function to parse stringified JSON fields from FormData
