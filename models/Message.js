@@ -90,7 +90,6 @@ messageSchema.index({ company: 1, createdAt: -1 });
 messageSchema.index({ sender: 1, recipient: 1, createdAt: -1 });
 messageSchema.index({ recipient: 1, sender: 1, createdAt: -1 });
 messageSchema.index({ sender: 1 });
-messageSchema.index({ recipient: 1 });
 messageSchema.index({ mentions: 1 });
 
 // Virtual to check if message is recent (within 5 minutes for editing)

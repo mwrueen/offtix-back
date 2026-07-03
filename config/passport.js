@@ -60,8 +60,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
       done(error, null);
     }
   }));
-} else {
-  console.log('Google OAuth not configured - skipping Google strategy initialization');
 }
 
 // Facebook OAuth Strategy - only initialize if credentials are provided
@@ -109,8 +107,6 @@ if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_ID !== 'your-faceboo
       done(error, null);
     }
   }));
-} else {
-  console.log('Facebook OAuth not configured - skipping Facebook strategy initialization');
 }
 
 module.exports = passport;
