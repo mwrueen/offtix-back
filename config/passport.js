@@ -1,6 +1,6 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const FacebookStrategy = require('passport-facebook').Strategy;
+const GitHubStrategy = require('passport-github2').Strategy;
 const User = require('../models/User');
 const syncPendingInvitationNotifications = require('../utils/syncPendingInvitationNotifications');
 
@@ -49,7 +49,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
         googleId: profile.id,
         name: profile.displayName,
         email: profile.emails[0].value,
-        avatar: profile.photos[0].value,
+        avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
         provider: 'google'
       });
 
@@ -62,42 +62,78 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
   }));
 }
 
-// Facebook OAuth Strategy - only initialize if credentials are provided
-if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_ID !== 'your-facebook-app-id-here') {
-  passport.use(new FacebookStrategy({
-    clientID: process.env.FACEBOOK_APP_ID,
-    clientSecret: process.env.FACEBOOK_APP_SECRET,
-    callbackURL: "/api/auth/facebook/callback",
-    profileFields: ['id', 'displayName', 'email', 'photos']
+// GitHub OAuth Strategy - only initialize if credentials are provided
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your-github-client-id-here') {
+  passport.use(new GitHubStrategy({
+    clientID: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    callbackURL: "/api/auth/github/callback"
   }, async (accessToken, refreshToken, profile, done) => {
     try {
-      // Check if user already exists with this Facebook ID
-      let user = await User.findOne({ facebookId: profile.id });
+      // Extract email or fetch from GitHub API directly
+      let email = profile.emails && profile.emails[0] ? profile.emails[0].value : profile.email;
+
+      if (!email && accessToken) {
+        try {
+          const emailResponse = await fetch('https://api.github.com/user/emails', {
+            headers: {
+              'Authorization': `token ${accessToken}`,
+              'User-Agent': 'offtix-auth'
+            }
+          });
+          if (emailResponse.ok) {
+            const emails = await emailResponse.json();
+            const primaryEmail = emails.find(e => e.primary) || emails[0];
+            if (primaryEmail) {
+              email = primaryEmail.email;
+            }
+          }
+        } catch (fetchError) {
+          console.error('Error fetching emails from GitHub API:', fetchError);
+        }
+      }
+
+      if (!email) {
+        email = `${profile.username || profile.id}@github.com`;
+      }
+
+      email = email.toLowerCase();
+
+      // Check if user already exists with this GitHub ID
+      let user = await User.findOne({ githubId: profile.id });
 
       if (user) {
+        // If user already exists but has a fallback email, update it with their real email if we now have it
+        if (user.email.endsWith('@github.com') && !email.endsWith('@github.com')) {
+          const emailConflict = await User.findOne({ email });
+          if (!emailConflict) {
+            user.email = email;
+            await user.save();
+          }
+        }
         return done(null, user);
       }
 
       // Check if user exists with same email
-      const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
-      if (email) {
-        user = await User.findOne({ email });
+      user = await User.findOne({ email });
 
-        if (user) {
-          // Link Facebook account to existing user
-          user.facebookId = profile.id;
-          await user.save();
-          return done(null, user);
+      if (user) {
+        // Link GitHub account to existing user
+        user.githubId = profile.id;
+        if (!user.avatar && profile.photos && profile.photos[0]) {
+          user.avatar = profile.photos[0].value;
         }
+        await user.save();
+        return done(null, user);
       }
 
       // Create new user
       user = new User({
-        facebookId: profile.id,
-        name: profile.displayName,
+        githubId: profile.id,
+        name: profile.displayName || profile.username || 'GitHub User',
         email: email,
         avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
-        provider: 'facebook'
+        provider: 'github'
       });
 
       await user.save();

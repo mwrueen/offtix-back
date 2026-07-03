@@ -16,7 +16,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: function () {
-      return !this.googleId && !this.facebookId;
+      return !this.googleId && !this.facebookId && !this.githubId;
     },
     minlength: 6
   },
@@ -28,12 +28,16 @@ const userSchema = new mongoose.Schema({
     type: String,
     sparse: true
   },
+  githubId: {
+    type: String,
+    sparse: true
+  },
   avatar: {
     type: String
   },
   provider: {
     type: String,
-    enum: ['local', 'google', 'facebook'],
+    enum: ['local', 'google', 'facebook', 'github'],
     default: 'local'
   },
   role: {
@@ -48,6 +52,7 @@ const userSchema = new mongoose.Schema({
   profile: {
     profilePicture: String,
     coverPhoto: String,
+    coverPosition: { type: Number, default: 50 },
     phone: String,
     location: String,
     title: String,
