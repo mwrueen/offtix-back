@@ -60,7 +60,7 @@ const companySchema = new mongoose.Schema({
   },
   currency: {
     type: String,
-    enum: ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR', 'SGD', 'HKD', 'NZD', 'SEK', 'NOK', 'DKK', 'MXN', 'BRL', 'ZAR', 'AED', 'SAR'],
+    enum: ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR', 'SGD', 'HKD', 'NZD', 'SEK', 'NOK', 'DKK', 'MXN', 'BRL', 'ZAR', 'AED', 'SAR', 'BDT', 'MYR', 'IDR', 'PKR', 'LKR', 'QAR', 'OMR', 'BHD', 'KWD'],
     default: 'USD',
     trim: true
   },

@@ -1,16 +1,45 @@
 const User = require('../models/User');
-const Project = require('../models/Project');
-const TaskStatus = require('../models/TaskStatus');
-const Phase = require('../models/Phase');
-const Sprint = require('../models/Sprint');
+const Currency = require('../models/Currency');
+
+const defaultCurrencies = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+  { code: 'CHF', symbol: 'CHF', name: 'Swiss Franc' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+  { code: 'HKD', symbol: 'HK$', name: 'Hong Kong Dollar' },
+  { code: 'NZD', symbol: 'NZ$', name: 'New Zealand Dollar' },
+  { code: 'SEK', symbol: 'kr', name: 'Swedish Krona' },
+  { code: 'NOK', symbol: 'kr', name: 'Norwegian Krone' },
+  { code: 'DKK', symbol: 'kr', name: 'Danish Krone' },
+  { code: 'MXN', symbol: 'MX$', name: 'Mexican Peso' },
+  { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+  { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+  { code: 'AED', symbol: 'د.إ', name: 'UAE Dirham' },
+  { code: 'SAR', symbol: '﷼', name: 'Saudi Riyal' },
+  { code: 'BDT', symbol: '৳', name: 'Bangladeshi Taka' },
+  { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit' },
+  { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
+  { code: 'PKR', symbol: '₨', name: 'Pakistani Rupee' },
+  { code: 'LKR', symbol: '₨', name: 'Sri Lankan Rupee' },
+  { code: 'QAR', symbol: 'ر.ق', name: 'Qatari Riyal' },
+  { code: 'OMR', symbol: 'ر.ع.', name: 'Omani Rial' },
+  { code: 'BHD', symbol: '.د.ب', name: 'Bahraini Dinar' },
+  { code: 'KWD', symbol: 'د.ك', name: 'Kuwaiti Dinar' }
+];
 
 const createDefaultData = async () => {
   try {
     // Create admin accounts
     await createAdminAccounts();
 
-    // Create sample project with default data
-    await createSampleProject();
+    // Seed currencies
+    await seedCurrencies();
 
     console.log('Default data initialization completed');
   } catch (error) {
@@ -18,115 +47,38 @@ const createDefaultData = async () => {
   }
 };
 
-const createAdminAccounts = async () => {
-  const adminExists = await User.findOne({ email: 'admin@taskflow.com' });
-  if (!adminExists) {
-    await User.create({
-      name: 'Admin User',
-      email: 'admin@taskflow.com',
-      password: 'admin123',
-      role: 'admin'
-    });
-    console.log('Admin account created: admin@taskflow.com / admin123');
-  }
-
-  const superAdminExists = await User.findOne({ email: 'superadmin@taskflow.com' });
-  if (!superAdminExists) {
-    await User.create({
-      name: 'Super Admin',
-      email: 'superadmin@taskflow.com',
-      password: 'superadmin123',
-      role: 'superadmin'
-    });
-    console.log('Super Admin account created: superadmin@taskflow.com / superadmin123');
-  }
-
-  // Create demo user
-  const demoExists = await User.findOne({ email: 'demo@tabredon.com' });
-  if (!demoExists) {
-    await User.create({
-      name: 'Demo User',
-      email: 'demo@tabredon.com',
-      password: 'demo123',
-      role: 'user'
-    });
-    console.log('Demo account created: demo@tabredon.com / demo123');
+const seedCurrencies = async () => {
+  for (const curr of defaultCurrencies) {
+    const exists = await Currency.findOne({ code: curr.code });
+    if (!exists) {
+      await Currency.create(curr);
+      console.log(`Seeded currency: ${curr.code}`);
+    }
   }
 };
 
-const createSampleProject = async () => {
-  const adminUser = await User.findOne({ email: 'admin@taskflow.com' });
-  if (!adminUser) return;
+const createAdminAccounts = async () => {
+  const adminExists = await User.findOne({ email: 'admin@offtix.com' });
+  if (!adminExists) {
+    await User.create({
+      name: 'Admin User',
+      email: 'admin@offtix.com',
+      password: 'admin123',
+      role: 'admin'
+    });
+    console.log('Admin account created: admin@offtix.com / admin123');
+  }
 
-  const existingProject = await Project.findOne({ title: 'Sample Project - Offtix Demo' });
-  if (existingProject) return;
-
-  // Create sample project
-  const project = await Project.create({
-    title: 'Sample Project - Offtix Demo',
-    description: 'This is a sample project to demonstrate Offtix\'s features including task management, sprints, phases, and different view modes.',
-    status: 'running',
-    priority: 'high',
-    owner: adminUser._id,
-    members: [{
-      user: adminUser._id,
-      role: 'Project Manager'
-    }]
-  });
-
-  // Create default task statuses
-  const statuses = await TaskStatus.insertMany([
-    { name: 'To Do', color: '#6b7280', order: 0, project: project._id },
-    { name: 'In Progress', color: '#3b82f6', order: 1, project: project._id },
-    { name: 'Review', color: '#f59e0b', order: 2, project: project._id },
-    { name: 'Testing', color: '#8b5cf6', order: 3, project: project._id },
-    { name: 'Done', color: '#10b981', order: 4, project: project._id }
-  ]);
-
-  // Create default phases
-  const phases = await Phase.insertMany([
-    { name: 'Planning', description: 'Project planning and requirement gathering', order: 0, project: project._id, status: 'completed' },
-    { name: 'Development', description: 'Core development phase', order: 1, project: project._id, status: 'active' },
-    { name: 'Testing', description: 'Quality assurance and testing', order: 2, project: project._id, status: 'planning' },
-    { name: 'Deployment', description: 'Production deployment and launch', order: 3, project: project._id, status: 'planning' }
-  ]);
-
-  // Create default sprints
-  const now = new Date();
-  const sprints = await Sprint.insertMany([
-    {
-      name: 'Sprint 1 - Foundation',
-      sprintNumber: 1,
-      startDate: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000),
-      endDate: now,
-      goal: 'Set up project foundation and basic features',
-      status: 'completed',
-      project: project._id
-    },
-    {
-      name: 'Sprint 2 - Core Features',
-      sprintNumber: 2,
-      startDate: now,
-      endDate: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
-      goal: 'Implement core task management features',
-      status: 'active',
-      project: project._id
-    },
-    {
-      name: 'Sprint 3 - Advanced Views',
-      sprintNumber: 3,
-      startDate: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
-      endDate: new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000),
-      goal: 'Add board and gantt views',
-      status: 'planning',
-      project: project._id
-    }
-  ]);
-
-  console.log(`Sample project created: ${project.title}`);
-  console.log(`Created ${statuses.length} task statuses`);
-  console.log(`Created ${phases.length} phases`);
-  console.log(`Created ${sprints.length} sprints`);
+  const superAdminExists = await User.findOne({ email: 'superadmin@offtix.com' });
+  if (!superAdminExists) {
+    await User.create({
+      name: 'Super Admin',
+      email: 'superadmin@offtix.com',
+      password: 'superadmin123',
+      role: 'superadmin'
+    });
+    console.log('Super Admin account created: superadmin@offtix.com / superadmin123');
+  }
 };
 
 module.exports = { createDefaultData };

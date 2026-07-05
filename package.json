@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "generate-company": "node scripts/generateCompanyData.js"
+    "generate-company": "node scripts/generateCompanyData.js",
+    "reset-db": "node scripts/resetDb.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",

@@ -31,6 +31,7 @@ const chatRoutes = require('./routes/chat');
 const taskRoleRoutes = require('./routes/taskRoles');
 const adminRoutes = require('./routes/admin');
 const myTasksRoutes = require('./routes/myTasks');
+const currencyRoutes = require('./routes/currencies');
 
 const app = express();
 const server = http.createServer(app);
@@ -106,6 +107,7 @@ app.use('/api/my-tasks', myTasksRoutes);
 app.use('/api/team-activity', require('./routes/teamActivity'));
 app.use('/api/recruitment', require('./routes/recruitmentRoutes'));
 app.use('/api/skills', require('./routes/skills.js'));
+app.use('/api/currencies', currencyRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server running' });
