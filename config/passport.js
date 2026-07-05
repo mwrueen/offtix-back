@@ -31,6 +31,24 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
       let user = await User.findOne({ googleId: profile.id });
 
       if (user) {
+        if (profile.photos && profile.photos[0]) {
+          const photoUrl = profile.photos[0].value;
+          let changed = false;
+          if (!user.avatar) {
+            user.avatar = photoUrl;
+            changed = true;
+          }
+          if (!user.profile) {
+            user.profile = {};
+          }
+          if (!user.profile.profilePicture) {
+            user.profile.profilePicture = photoUrl;
+            changed = true;
+          }
+          if (changed) {
+            await user.save();
+          }
+        }
         return done(null, user);
       }
 
@@ -40,17 +58,33 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
       if (user) {
         // Link Google account to existing user
         user.googleId = profile.id;
+        if (profile.photos && profile.photos[0]) {
+          const photoUrl = profile.photos[0].value;
+          if (!user.avatar) {
+            user.avatar = photoUrl;
+          }
+          if (!user.profile) {
+            user.profile = {};
+          }
+          if (!user.profile.profilePicture) {
+            user.profile.profilePicture = photoUrl;
+          }
+        }
         await user.save();
         return done(null, user);
       }
 
       // Create new user
+      const avatarUrl = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
       user = new User({
         googleId: profile.id,
         name: profile.displayName,
         email: profile.emails[0].value,
-        avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
-        provider: 'google'
+        avatar: avatarUrl,
+        provider: 'google',
+        profile: {
+          profilePicture: avatarUrl
+        }
       });
 
       await user.save();
@@ -103,13 +137,34 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your-githu
       let user = await User.findOne({ githubId: profile.id });
 
       if (user) {
+        let changed = false;
         // If user already exists but has a fallback email, update it with their real email if we now have it
         if (user.email.endsWith('@github.com') && !email.endsWith('@github.com')) {
           const emailConflict = await User.findOne({ email });
           if (!emailConflict) {
             user.email = email;
-            await user.save();
+            changed = true;
           }
+        }
+
+        // Sync profile pictures for existing GitHub user
+        if (profile.photos && profile.photos[0]) {
+          const photoUrl = profile.photos[0].value;
+          if (!user.avatar) {
+            user.avatar = photoUrl;
+            changed = true;
+          }
+          if (!user.profile) {
+            user.profile = {};
+          }
+          if (!user.profile.profilePicture) {
+            user.profile.profilePicture = photoUrl;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          await user.save();
         }
         return done(null, user);
       }
@@ -120,20 +175,33 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your-githu
       if (user) {
         // Link GitHub account to existing user
         user.githubId = profile.id;
-        if (!user.avatar && profile.photos && profile.photos[0]) {
-          user.avatar = profile.photos[0].value;
+        if (profile.photos && profile.photos[0]) {
+          const photoUrl = profile.photos[0].value;
+          if (!user.avatar) {
+            user.avatar = photoUrl;
+          }
+          if (!user.profile) {
+            user.profile = {};
+          }
+          if (!user.profile.profilePicture) {
+            user.profile.profilePicture = photoUrl;
+          }
         }
         await user.save();
         return done(null, user);
       }
 
       // Create new user
+      const avatarUrl = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
       user = new User({
         githubId: profile.id,
         name: profile.displayName || profile.username || 'GitHub User',
         email: email,
-        avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
-        provider: 'github'
+        avatar: avatarUrl,
+        provider: 'github',
+        profile: {
+          profilePicture: avatarUrl
+        }
       });
 
       await user.save();
