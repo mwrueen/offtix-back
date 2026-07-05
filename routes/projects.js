@@ -4,55 +4,20 @@ const projectController = require('../controllers/projectController');
 const { authenticate } = require('../middleware/auth');
 const { validateProject } = require('../middleware/validation');
 const { requirePermission } = require('../middleware/permissions');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const createUploader = require('../utils/uploadHelper');
 
 // Configure multer for project file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/project-files');
-
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'project-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  }
+const upload = createUploader({
+  destination: 'uploads/project-files',
+  prefix: 'project',
+  limitSize: 10 * 1024 * 1024 // 10MB limit
 });
 
 // Configure multer for project logos
-const logoStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/project-logos');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'logo-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const logoUpload = multer({
-  storage: logoStorage,
-  limits: {
-    fileSize: 2 * 1024 * 1024 // 2MB limit for logos
-  },
+const logoUpload = createUploader({
+  destination: 'uploads/project-logos',
+  prefix: 'logo',
+  limitSize: 2 * 1024 * 1024, // 2MB limit for logos
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
