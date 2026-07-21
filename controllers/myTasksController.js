@@ -1671,3 +1671,41 @@ exports.sendBackSequentialTask = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+exports.editActivity = async (req, res) => {
+  try {
+    const { activityId } = req.params;
+    const userId = req.user._id;
+    const TaskActivity = require('../models/TaskActivity');
+    
+    const activity = await TaskActivity.findById(activityId);
+    if (!activity) return res.status(404).json({ error: 'Activity not found' });
+    
+    if (activity.performedBy.toString() !== userId.toString()) {
+      return res.status(403).json({ error: 'You can only edit your own activity' });
+    }
+    
+    if (req.body.note !== undefined) activity.note = req.body.note;
+    if (req.body.message !== undefined) activity.message = req.body.message;
+    if (req.body.link !== undefined) {
+      activity.metadata = activity.metadata || {};
+      activity.metadata.link = req.body.link;
+    }
+    
+    // Add any new files
+    if (req.files && req.files.length > 0) {
+      const newDocs = req.files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalname,
+        path: file.path,
+        size: file.size,
+        mimetype: file.mimetype
+      }));
+      activity.documents = [...(activity.documents || []), ...newDocs];
+    }
+    
+    await activity.save();
+    res.json({ message: 'Activity updated successfully', activity });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

@@ -58,5 +58,8 @@ router.post('/:taskId/sequential/complete', uploadTaskDocuments.array('files', 1
 ], myTasksController.completeSequentialTask);
 router.post('/:taskId/sequential/send-back', uploadTaskDocuments.array('files', 10), myTasksController.sendBackSequentialTask);
 
+// Edit Activity
+router.put('/activity/:activityId', uploadTaskDocuments.array('files', 10), myTasksController.editActivity);
+
 module.exports = router;
 
