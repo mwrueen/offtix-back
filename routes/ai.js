@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { authenticate } = require('../middleware/auth');
+const Task = require('../models/Task');
 
 router.post('/generate-project-description', authenticate, async (req, res) => {
   try {
@@ -95,6 +96,96 @@ CRITICAL INSTRAINTS:
   } catch (error) {
     console.error('Error generating job benefits with Gemini:', error);
     res.status(500).json({ error: 'Failed to generate perks & benefits' });
+  }
+});
+
+router.post('/transcribe-meeting-audio', authenticate, async (req, res) => {
+  try {
+    const { audioBase64, mimeType, projectId } = req.body;
+
+    if (!audioBase64) {
+      return res.status(400).json({ error: 'Audio file data is required' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Gemini API key is not configured' });
+    }
+
+    let existingTasks = [];
+    if (projectId) {
+      try {
+        existingTasks = await Task.find({ project: projectId }).select('title description status priority').lean();
+      } catch (err) {
+        console.error('Error fetching existing project tasks for AI context:', err);
+      }
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+
+    const base64Data = audioBase64.replace(/^data:audio\/[a-zA-Z0-9]+;base64,/, '');
+
+    const filePart = {
+      inlineData: {
+        data: base64Data,
+        mimeType: mimeType || 'audio/mp3'
+      }
+    };
+
+    const existingTasksSummary = existingTasks.length > 0
+      ? existingTasks.map(t => `- Title: "${t.title}", Priority: "${t.priority || 'medium'}", Description: "${t.description || ''}"`).join('\n')
+      : 'No previous tasks found.';
+
+    const prompt = `Listen carefully to the audio of this project meeting and transcribe its contents accurately.
+Analyze the transcript in comparison with the project's existing/previous tasks listed below:
+
+EXISTING PROJECT TASKS:
+${existingTasksSummary}
+
+Return your response strictly as a RAW JSON object with the following structure:
+{
+  "title": "A short descriptive title for this meeting based on the audio",
+  "transcript": "Full clean transcript text of the meeting",
+  "notesHtml": "<p>Structured meeting notes formatted in HTML (<p>, <ul>, <li>, <strong>) summarizing key discussions.</p>",
+  "actionItems": ["Action item 1", "Action item 2"],
+  "decisions": ["Decision 1", "Decision 2"],
+  "generatedTasks": [
+    {
+      "title": "New Task Title 1",
+      "description": "Detailed task description based on meeting insights and gaps in previous tasks",
+      "priority": "medium"
+    }
+  ]
+}
+
+IMPORTANT:
+1. Do NOT wrap the JSON output in markdown code blocks like \`\`\`json. Return raw valid JSON string only.
+2. Provide 2 to 5 practical, distinct NEW tasks in "generatedTasks" that are NOT duplicates of existing tasks.`;
+
+    const result = await model.generateContent([prompt, filePart]);
+    const response = await result.response;
+    const responseText = response.text().trim().replace(/^```json\n?/, '').replace(/```$/, '');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (e) {
+      console.error('Failed to parse AI JSON:', responseText);
+      parsed = {
+        title: 'Meeting Notes & Transcription',
+        transcript: responseText,
+        notesHtml: `<p>${responseText}</p>`,
+        actionItems: [],
+        decisions: [],
+        generatedTasks: []
+      };
+    }
+
+    res.json(parsed);
+  } catch (error) {
+    console.error('Error transcribing audio with Gemini:', error);
+    res.status(500).json({ error: 'Failed to transcribe audio and analyze meeting' });
   }
 });
 
