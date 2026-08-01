@@ -73,7 +73,7 @@ const getPublicCirculars = async () => {
 
 const getCircularDetails = async (id, user) => {
   const circular = await JobCircular.findById(id)
-    .populate('company', 'name logo description website industries');
+    .populate('company', 'name logo description website industries address email phone');
   if (!circular || (circular.status !== 'active' && !user)) {
     throw ApiError.notFound('Job circular not found or not currently active');
   }
@@ -94,6 +94,20 @@ const applyForJob = async (user, circularId, { applicant, answers }) => {
   const circular = await JobCircular.findById(circularId);
   if (!circular || circular.status !== 'active') throw ApiError.notFound('Active job circular not found');
   if (!applicant?.email || !applicant?.name) throw ApiError.badRequest('Applicant name and email are required');
+
+  if (user) {
+    const userDoc = await User.findById(user._id);
+    const p = userDoc?.profile || {};
+    const hasAddress = Boolean((p.address || p.location || '').trim());
+    const hasFatherName = Boolean((p.fatherName || '').trim());
+    const hasMotherName = Boolean((p.motherName || '').trim());
+    const hasEducation = Array.isArray(p.education) && p.education.length > 0 && p.education.some(e => (e.institution || e.degree));
+    const hasSkills = (Array.isArray(p.skills) && p.skills.length > 0) || (typeof p.skills === 'string' && p.skills.trim().length > 0);
+
+    if (!hasAddress || !hasFatherName || !hasMotherName || !hasEducation || !hasSkills) {
+      throw ApiError.badRequest('Please complete your profile (Basic Information: Address, Father Name, Mother Name; Educational Information; and Skills) before applying.');
+    }
+  }
 
   const emailNorm = String(applicant.email).toLowerCase().trim();
   const linkedUserId = user?._id || null;
@@ -120,7 +134,8 @@ const applyForJob = async (user, circularId, { applicant, answers }) => {
       title: 'New Job Application',
       message: `${applicant.name} has applied for the "${circular.title}" position.`,
       relatedId: application._id,
-      relatedModel: 'Application'
+      relatedModel: 'Application',
+      metadata: { circularId: circular._id }
     });
     emitSocketNotification(null, company.owner, ownerNotif);
   }

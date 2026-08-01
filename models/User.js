@@ -55,6 +55,9 @@ const userSchema = new mongoose.Schema({
     coverPosition: { type: Number, default: 50 },
     phone: String,
     location: String,
+    address: String,
+    fatherName: String,
+    motherName: String,
     title: String,
     summary: String,
     experience: [{

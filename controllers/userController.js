@@ -61,7 +61,9 @@ exports.updateUserPassword = asyncHandler(async (req, res) => {
 
 exports.exportResumePDF = asyncHandler(async (req, res) => {
   const { pdfBuffer, filename } = await userService.exportResume(req.params.id);
+  const buffer = Buffer.from(pdfBuffer);
   res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Length', buffer.length);
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(pdfBuffer);
+  res.end(buffer);
 });

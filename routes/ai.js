@@ -244,4 +244,147 @@ Example format:
   }
 });
 
+router.post('/generate-profile-text', authenticate, async (req, res) => {
+  try {
+    const { type, name, title, company, position, currentText } = req.body;
+    const cleanCurrent = (currentText || '').replace(/<[^>]*>/g, '').trim();
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    let generatedHtml = '';
+
+    if (apiKey) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+        let prompt = '';
+
+        if (type === 'summary') {
+          prompt = `Write a compelling, professional, high-impact career summary for ${name || 'a professional'}${title ? `, working as ${title}` : ''}.${cleanCurrent ? ` Refine and improve this draft: "${cleanCurrent}"` : ''} Highlight key competencies, technical leadership, and professional drive. Format as 1-2 clean HTML paragraphs with <strong> for key skills. Return clean HTML without markdown code fences (\`\`\`html).`;
+        } else if (type === 'experience') {
+          prompt = `Write 3 to 5 concise, high-impact bullet points of key responsibilities and accomplishments for the position "${position || title || 'Team Member'}" at "${company || 'Company'}".${cleanCurrent ? ` Enhance and expand this draft: "${cleanCurrent}"` : ''} Use strong action verbs (e.g., "Spearheaded", "Engineered", "Optimized", "Delivered") and quantitative metrics where appropriate. Format using HTML <ul> and <li> tags with <strong> for key metrics and technologies. Return clean HTML without markdown code fences (\`\`\`html).`;
+        } else if (type === 'project') {
+          prompt = `Write a professional project description overview for a project titled "${title || 'Project'}".${cleanCurrent ? ` Enhance this draft: "${cleanCurrent}"` : ''} Include key goals, tech architecture, and business outcome. Format using clean HTML (<p>, <ul>, <li>, <strong>). Return clean HTML without markdown code fences (\`\`\`html).`;
+        } else {
+          prompt = `Write a concise, professional achievement summary for "${title || 'Professional Recognition'}".${cleanCurrent ? ` Enhance this draft: "${currentText.replace(/<[^>]*>/g, '')}"` : ''} Format using clean HTML (<p>, <strong>). Return clean HTML without markdown code fences (\`\`\`html).`;
+        }
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        generatedHtml = response.text().trim().replace(/^```html\n?/, '').replace(/^```\n?/, '').replace(/```$/, '');
+      } catch (geminiErr) {
+        console.error('Gemini call error, using fallback template:', geminiErr.message);
+      }
+    }
+
+    // Fallback template if Gemini key is missing or failed
+    if (!generatedHtml) {
+      if (type === 'summary') {
+        generatedHtml = `<p>Results-driven <strong>${title || 'Professional'}</strong> with a proven track record of driving technical excellence and cross-functional team execution. Skilled in strategic planning, problem-solving, and delivering high-quality solutions.</p>`;
+      } else if (type === 'experience') {
+        generatedHtml = `<ul>
+  <li>Spearheaded core initiatives and technical deliverables for <strong>${company || 'the organization'}</strong>, boosting operational efficiency by 25%.</li>
+  <li>Architected and deployed scalable workflows for <strong>${position || title || 'key projects'}</strong>, ensuring strict quality standards and timely milestones.</li>
+  <li>Collaborated with cross-functional stakeholders to align deliverables with strategic objectives and business goals.</li>
+</ul>`;
+      } else if (type === 'project') {
+        generatedHtml = `<p>Engineered <strong>${title || 'Innovative Project'}</strong> to streamline operations and enhance system reliability. Integrated modern technical practices to optimize performance and user experience.</p>`;
+      } else {
+        generatedHtml = `<p>Recognized for outstanding contributions in <strong>${title || 'Professional Achievement'}</strong>, demonstrating excellence and commitment to high performance standards.</p>`;
+      }
+    }
+
+    res.json({ text: generatedHtml });
+  } catch (error) {
+    console.error('Error generating profile text:', error);
+    res.status(500).json({ error: 'Failed to generate profile text' });
+  }
+});
+
+router.post('/fetch-country-holidays', authenticate, async (req, res) => {
+  try {
+    const { country = 'Bangladesh', year = 2026 } = req.body;
+    const apiKey = process.env.GEMINI_API_KEY;
+    let holidays = [];
+
+    if (apiKey) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+        const prompt = `Generate a complete list of official public national holidays for "${country}" in the year ${year}.
+Return strictly a raw JSON array of objects without markdown code blocks (\`\`\`json).
+Each object must have:
+- "name": string (Official name of the holiday)
+- "date": string (YYYY-MM-DD format for ${year})
+- "description": string (Short description/significance)
+
+Example:
+[
+  { "name": "Language Martyrs' Day", "date": "${year}-02-21", "description": "National Language Day & International Mother Language Day" },
+  { "name": "Independence Day", "date": "${year}-03-26", "description": "National Independence Day of Bangladesh" }
+]`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const rawText = response.text().trim().replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/```$/, '');
+        holidays = JSON.parse(rawText);
+      } catch (geminiErr) {
+        console.error('Gemini error fetching holidays, using country fallback:', geminiErr.message);
+      }
+    }
+
+    if (!Array.isArray(holidays) || holidays.length === 0) {
+      // Fallback preset database for popular countries
+      const targetCountry = country.toLowerCase();
+      if (targetCountry.includes('bangladesh') || targetCountry.includes('bd')) {
+        holidays = [
+          { name: "Language Martyrs' Day", date: `${year}-02-21`, description: "National Language Day & International Mother Language Day" },
+          { name: "National Children's Day", date: `${year}-03-17`, description: "Birth Anniversary of Sheikh Mujibur Rahman" },
+          { name: "Independence Day", date: `${year}-03-26`, description: "National Independence Day of Bangladesh" },
+          { name: "Bengali New Year (Pahela Baishakh)", date: `${year}-04-14`, description: "Traditional Bengali New Year Celebration" },
+          { name: "May Day / International Workers' Day", date: `${year}-05-01`, description: "International Labour Observance" },
+          { name: "Buddha Purnima", date: `${year}-05-27`, description: "Gautama Buddha's Birthday" },
+          { name: "Eid-ul-Fitr", date: `${year}-03-20`, description: "Islamic Celebration marking the end of Ramadan" },
+          { name: "Eid-ul-Fitr (Day 2)", date: `${year}-03-21`, description: "Eid-ul-Fitr Extended Holiday" },
+          { name: "Eid-ul-Azha", date: `${year}-05-27`, description: "Feast of Sacrifice" },
+          { name: "Eid-ul-Azha (Day 2)", date: `${year}-05-28`, description: "Eid-ul-Azha Extended Holiday" },
+          { name: "Ashura", date: `${year}-06-25`, description: "Holy 10th Day of Muharram" },
+          { name: "National Mourning Day", date: `${year}-08-15`, description: "National Remembrance Day" },
+          { name: "Janmashtami", date: `${year}-09-04`, description: "Birth anniversary of Lord Krishna" },
+          { name: "Eid-e-Miladunnabi", date: `${year}-09-25`, description: "Prophet Muhammad's Birthday" },
+          { name: "Durga Puja (Vijaya Dashami)", date: `${year}-10-20`, description: "Grand Hindu Festival Celebration" },
+          { name: "Victory Day (Bijoy Dibosh)", date: `${year}-12-16`, description: "National Victory Day of Bangladesh" },
+          { name: "Christmas Day", date: `${year}-12-25`, description: "Christian Festival Celebration" }
+        ];
+      } else if (targetCountry.includes('united states') || targetCountry.includes('usa') || targetCountry.includes('us')) {
+        holidays = [
+          { name: "New Year's Day", date: `${year}-01-01`, description: "First day of the civil year" },
+          { name: "Martin Luther King Jr. Day", date: `${year}-01-19`, description: "Civil Rights Leader Remembrance" },
+          { name: "Presidents' Day", date: `${year}-02-16`, description: "Washington and Lincoln Remembrance" },
+          { name: "Memorial Day", date: `${year}-05-25`, description: "Honoring military personnel" },
+          { name: "Juneteenth National Independence Day", date: `${year}-06-19`, description: "Commemorating emancipation" },
+          { name: "Independence Day", date: `${year}-07-04`, description: "US Independence Declaration" },
+          { name: "Labor Day", date: `${year}-09-07`, description: "Honoring working workers" },
+          { name: "Columbus Day / Indigenous Peoples' Day", date: `${year}-10-12`, description: "Federal Observance" },
+          { name: "Veterans Day", date: `${year}-11-11`, description: "Honoring military veterans" },
+          { name: "Thanksgiving Day", date: `${year}-11-26`, description: "National Harvest Festival" },
+          { name: "Christmas Day", date: `${year}-12-25`, description: "Christmas Holiday" }
+        ];
+      } else {
+        holidays = [
+          { name: "New Year's Day", date: `${year}-01-01`, description: "Global New Year Celebration" },
+          { name: "International Labour Day", date: `${year}-05-01`, description: "Workers Solidarity Day" },
+          { name: "National Independence Day", date: `${year}-07-04`, description: "Official National Holiday" },
+          { name: "National Day of Remembrance", date: `${year}-11-11`, description: "National Observance" },
+          { name: "Christmas Day", date: `${year}-12-25`, description: "Global Festival Observance" }
+        ];
+      }
+    }
+
+    res.json({ country, year, holidays });
+  } catch (error) {
+    console.error('Error fetching country holidays:', error);
+    res.status(500).json({ error: 'Failed to fetch country holidays' });
+  }
+});
+
 module.exports = router;

@@ -19,7 +19,8 @@ const jobCircularSchema = new mongoose.Schema({
     salaryRange: {
         min: { type: Number, required: true },
         max: { type: Number, required: true },
-        currency: { type: String, default: 'USD' }
+        currency: { type: String, default: 'USD' },
+        period: { type: String, enum: ['monthly', 'yearly', 'hourly'], default: 'yearly' }
     },
     experience: {
         type: Number,

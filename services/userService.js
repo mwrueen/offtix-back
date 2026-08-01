@@ -1,3 +1,4 @@
+const fs = require('fs');
 const User = require('../models/User');
 const Company = require('../models/Company');
 const puppeteer = require('puppeteer');
@@ -127,23 +128,52 @@ const updateUserPassword = async (requester, id, password) => {
   await user.save();
 };
 
+const getPuppeteerExecutablePath = () => {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+  const possiblePaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium'
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+};
+
 const exportResume = async (id) => {
   const user = await User.findById(id);
   if (!user) throw ApiError.notFound('User not found');
 
-  const browser = await puppeteer.launch({
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  const execPath = getPuppeteerExecutablePath();
+  const launchOptions = {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu'
+    ]
+  };
+  if (execPath) {
+    launchOptions.executablePath = execPath;
+  }
+
+  const browser = await puppeteer.launch(launchOptions);
   try {
     const page = await browser.newPage();
-    await page.setContent(generateResumeHTML(user), { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.setContent(generateResumeHTML(user), { waitUntil: 'networkidle0', timeout: 60000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
       margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
     });
-    return { pdfBuffer, filename: `${user.name.replace(/\s+/g, '_')}_Resume.pdf` };
+    return { pdfBuffer: Buffer.from(pdfBuffer), filename: `${(user.name || 'User').replace(/\s+/g, '_')}_Resume.pdf` };
   } finally {
     await browser.close();
   }
