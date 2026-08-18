@@ -16,6 +16,7 @@ const upload = createUploader({
 router.post('/', authenticate, companyController.createCompany);
 router.get('/my-company', authenticate, companyController.getUserCompany);
 router.get('/user-companies', authenticate, companyController.getUserCompanies);
+router.get('/public/:id', companyController.getPublicCompany);
 router.get('/:id', authenticate, companyController.getCompany);
 router.put('/:id/profile', authenticate, requirePermission('manageCompanySettings'), companyController.updateCompanyProfile);
 router.post('/:id/logo', authenticate, upload.single('logo'), companyController.uploadCompanyLogo);

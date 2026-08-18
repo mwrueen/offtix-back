@@ -1237,3 +1237,73 @@ exports.uploadCompanyLogo = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+exports.getPublicCompany = async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.id)
+      .select('-members.currentSalary -members.bankDetails')
+      .lean();
+
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    const Application = require('../models/Application');
+    const JobCircular = require('../models/JobCircular');
+
+    const hiredApplications = await Application.find({ status: 'hired' }).distinct('jobCircular');
+    const now = new Date();
+
+    const jobFilter = {
+      company: company._id,
+      status: { $in: ['active', 'published'] },
+      _id: { $nin: hiredApplications },
+      $or: [{ deadline: { $gte: now } }, { deadline: null }, { deadline: { $exists: false } }]
+    };
+
+    const [activeJobsCount, hiredCount, openCirculars] = await Promise.all([
+      JobCircular.countDocuments(jobFilter),
+      Application.countDocuments({ company: company._id, status: 'hired' }),
+      JobCircular.find(jobFilter)
+        .select('title role location salaryRange jobNature experience createdAt deadline')
+        .sort({ createdAt: -1 })
+        .lean()
+    ]);
+
+    const publicData = {
+      _id: company._id,
+      name: company.name,
+      logo: company.logo,
+      description: company.description || 'No detailed overview provided by organization.',
+      industry: company.industry,
+      industries: company.industries || [company.industry].filter(Boolean),
+      website: company.website,
+      email: company.email,
+      phone: company.phone,
+      address: company.address,
+      city: company.city,
+      state: company.state,
+      country: company.country,
+      zipCode: company.zipCode,
+      foundedYear: company.foundedYear || 2020,
+      companySize: company.companySize || `${company.members?.length || 1}+ Employees`,
+      totalEmployees: company.members?.length || 1,
+      activeJobsCount: activeJobsCount || openCirculars.length,
+      hiredCount: hiredCount || 0,
+      rating: 4.9,
+      holidays: (company.holidays || []).map(h => ({
+        _id: h._id,
+        name: h.name,
+        date: h.date,
+        description: h.description,
+        type: h.type || 'Public Holiday'
+      })),
+      openCirculars: openCirculars || []
+    };
+
+    res.json(publicData);
+  } catch (error) {
+    console.error('Error fetching public company:', error);
+    res.status(500).json({ message: 'Server error fetching company details' });
+  }
+};
