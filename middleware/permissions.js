@@ -76,9 +76,13 @@ const requirePermission = (permissionKey) => {
                 // Dynamic require to avoid circular dependency if Project model uses permissions
                 const Project = require('../models/Project');
                 try {
-                    const project = await Project.findById(companyId).select('company').lean();
+                    const project = await Project.findById(companyId).select('company owner').lean();
 
-                    if (project && project.company) {
+                    if (project) {
+                        if (!project.company) {
+                            // Personal Project! No company context exists — proceed to route handler
+                            return next();
+                        }
                         company = await Company.findById(project.company)
                             .select('owner members designations')
                             .lean();

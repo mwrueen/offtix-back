@@ -24,7 +24,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/api/auth/google/callback"
+    callbackURL: process.env.NODE_ENV === 'production'
+      ? "https://offtix.com/api/auth/google/callback"
+      : "http://localhost:5000/api/auth/google/callback",
+    proxy: true
   }, async (accessToken, refreshToken, profile, done) => {
     try {
       // Check if user already exists with this Google ID
@@ -101,7 +104,10 @@ if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your-githu
   passport.use(new GitHubStrategy({
     clientID: process.env.GITHUB_CLIENT_ID,
     clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    callbackURL: "/api/auth/github/callback"
+    callbackURL: process.env.NODE_ENV === 'production'
+      ? "https://offtix.com/api/auth/github/callback"
+      : "http://localhost:5000/api/auth/github/callback",
+    proxy: true
   }, async (accessToken, refreshToken, profile, done) => {
     try {
       // Extract email or fetch from GitHub API directly
