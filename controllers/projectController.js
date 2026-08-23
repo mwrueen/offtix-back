@@ -232,27 +232,33 @@ exports.getProjectById = async (req, res) => {
     // Check if user has access to this project
     let hasAccess = false;
 
+    const currentUserId = req.user._id.toString();
+    const ownerId = (project.owner?._id || project.owner)?.toString();
+    const pmId = (project.projectManager?._id || project.projectManager)?.toString();
+
     // Superadmin always has access
     if (isSuperAdmin) {
       hasAccess = true;
     }
-    // Check if user is the project owner
-    else if (project.owner._id.equals(req.user._id)) {
+    // Check if user is the project owner or project manager
+    else if (ownerId === currentUserId || pmId === currentUserId) {
       hasAccess = true;
     }
     // Check if user is a project member
-    else if (project.members.some(member => {
-      const memberId = member.user?._id || member.user;
-      return memberId && memberId.toString() === req.user._id.toString();
+    else if (project.members && project.members.some(member => {
+      const memberId = (member.user?._id || member.user)?.toString();
+      return memberId && memberId === currentUserId;
     })) {
       hasAccess = true;
     }
-    // Check if project belongs to a company and user is the company owner (not just a member)
+    // Check if project belongs to a company and user is a company owner or member
     else if (project.company) {
-      const company = await Company.findById(project.company._id);
+      const companyId = project.company._id || project.company;
+      const company = await Company.findById(companyId);
       if (company) {
-        // Only company owner has access to all projects, not regular members
-        hasAccess = company.owner.toString() === req.user._id.toString();
+        const isCompanyOwner = company.owner.toString() === currentUserId;
+        const isCompanyMember = company.members.some(m => (m.user?._id || m.user).toString() === currentUserId);
+        hasAccess = isCompanyOwner || isCompanyMember;
       }
     }
 

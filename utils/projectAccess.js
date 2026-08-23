@@ -25,22 +25,33 @@ const assertProjectAccess = async (projectId, userId, options = {}) => {
   const user = await User.findById(userId);
   const isSuperadmin = user?.role === 'superadmin';
 
-  const isOwner = project.owner.equals(userId);
+  const userIdStr = userId.toString();
+  const ownerIdStr = (project.owner?._id || project.owner)?.toString();
+  const pmIdStr = (project.projectManager?._id || project.projectManager)?.toString();
+
+  const isOwner = ownerIdStr === userIdStr;
+  const isPM = pmIdStr === userIdStr;
   const isMember = project.members.some((m) => {
     const memberUser = m.user?._id || m.user;
-    return memberUser.toString() === userId.toString();
+    return memberUser && memberUser.toString() === userIdStr;
   });
 
   let isCompanyOwner = false;
+  let isCompanyMember = false;
   let company = null;
   if (project.company) {
     company = await Company.findById(project.company);
-    if (company && company.owner.toString() === userId.toString()) {
-      isCompanyOwner = true;
+    if (company) {
+      if (company.owner.toString() === userIdStr) {
+        isCompanyOwner = true;
+      }
+      if (company.members.some((m) => (m.user?._id || m.user).toString() === userIdStr)) {
+        isCompanyMember = true;
+      }
     }
   }
 
-  const hasAccess = isSuperadmin || isOwner || isMember || isCompanyOwner;
+  const hasAccess = isSuperadmin || isOwner || isPM || isMember || isCompanyOwner || isCompanyMember;
   if (!hasAccess) {
     throw ApiError.forbidden('Access denied');
   }
