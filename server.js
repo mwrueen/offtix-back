@@ -37,10 +37,16 @@ const aiRoutes = require('./routes/ai');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  'https://offtix.com',
+  'https://www.offtix.com',
+  'http://localhost:3000'
+];
+
 // Socket.io setup with CORS
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -52,8 +58,17 @@ require('./utils/socketRegistry').setIo(io);
 
 // Middleware
 app.use(cors({
-  origin: true,
-  credentials: true
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
