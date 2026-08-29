@@ -46,3 +46,5 @@ exports.optionalAuthenticate = async (req, res, next) => {
     next();
   }
 };
+
+exports.authenticateToken = exports.authenticate;

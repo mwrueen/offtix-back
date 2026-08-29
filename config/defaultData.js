@@ -58,27 +58,21 @@ const seedCurrencies = async () => {
 };
 
 const createAdminAccounts = async () => {
-  const adminExists = await User.findOne({ email: 'admin@offtix.com' });
-  if (!adminExists) {
-    await User.create({
-      name: 'Admin User',
-      email: 'admin@offtix.com',
-      password: 'admin123',
-      role: 'admin'
-    });
-    console.log('Admin account created: admin@offtix.com / admin123');
-  }
+  const accounts = [
+    { name: 'Super Admin', email: 'admin@offtix.com', password: 'password123', role: 'superadmin' },
+    { name: 'Super Admin System', email: 'superadmin@offtix.com', password: 'password123', role: 'superadmin' },
+    { name: 'Demo Client', email: 'client@offtix.com', password: 'password123', role: 'admin' },
+    { name: 'Demo User', email: 'user@offtix.com', password: 'password123', role: 'user' }
+  ];
 
-  const superAdminExists = await User.findOne({ email: 'superadmin@offtix.com' });
-  if (!superAdminExists) {
-    await User.create({
-      name: 'Super Admin',
-      email: 'superadmin@offtix.com',
-      password: 'superadmin123',
-      role: 'superadmin'
-    });
-    console.log('Super Admin account created: superadmin@offtix.com / superadmin123');
+  for (const acc of accounts) {
+    const exists = await User.findOne({ email: acc.email });
+    if (!exists) {
+      await User.create(acc);
+      console.log(`Created account: ${acc.email} / ${acc.password} (${acc.role})`);
+    }
   }
 };
+
 
 module.exports = { createDefaultData };

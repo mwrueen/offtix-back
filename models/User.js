@@ -49,6 +49,22 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company'
   },
+  subscription: {
+    plan: {
+      type: String,
+      enum: ['free', 'premium'],
+      default: 'free'
+    },
+    status: {
+      type: String,
+      enum: ['active', 'canceled', 'past_due', 'none'],
+      default: 'none'
+    },
+    stripeCustomerId: String,
+    stripeSubscriptionId: String,
+    expiresAt: Date
+  },
+
   profile: {
     profilePicture: String,
     coverPhoto: String,

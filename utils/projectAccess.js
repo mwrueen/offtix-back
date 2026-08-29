@@ -56,9 +56,10 @@ const assertProjectAccess = async (projectId, userId, options = {}) => {
     throw ApiError.forbidden('Access denied');
   }
 
-  if (requireOwner && !(isOwner || isSuperadmin)) {
-    throw ApiError.forbidden('Only project owner can manage this resource');
+  if (requireOwner && !(isOwner || isSuperadmin || isCompanyOwner || isPM)) {
+    throw ApiError.forbidden('Only project owner or manager can manage this resource');
   }
+
 
   const result = { project, user, isOwner };
   if (loadCompany) result.company = company;

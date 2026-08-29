@@ -28,8 +28,10 @@ router.post('/:taskId/start', myTasksController.startTask);
 // Pause task
 router.post('/:taskId/pause', myTasksController.pauseTask);
 
+const { requirePremiumIfFiles } = require('../middleware/requirePremium');
+
 // Complete task step
-router.post('/:taskId/complete', uploadTaskDocuments.array('files', 10), [
+router.post('/:taskId/complete', uploadTaskDocuments.array('files', 10), requirePremiumIfFiles('allowTaskCompletionDocs'), [
   body('note')
     .trim()
     .isLength({ min: 1 })
@@ -37,7 +39,7 @@ router.post('/:taskId/complete', uploadTaskDocuments.array('files', 10), [
 ], myTasksController.completeTask);
 
 // Send back for fix
-router.post('/:taskId/send-back', uploadTaskDocuments.array('files', 10), [
+router.post('/:taskId/send-back', uploadTaskDocuments.array('files', 10), requirePremiumIfFiles('allowTaskCompletionDocs'), [
   body('note')
     .trim()
     .isLength({ min: 1 })
@@ -50,16 +52,17 @@ router.post('/:taskId/send-back', uploadTaskDocuments.array('files', 10), [
 // Sequential workflow routes
 router.post('/:taskId/sequential/start', myTasksController.startSequentialTask);
 router.post('/:taskId/sequential/pause', myTasksController.pauseSequentialTask);
-router.post('/:taskId/sequential/complete', uploadTaskDocuments.array('files', 10), [
+router.post('/:taskId/sequential/complete', uploadTaskDocuments.array('files', 10), requirePremiumIfFiles('allowTaskCompletionDocs'), [
   body('note')
     .trim()
     .isLength({ min: 1 })
     .withMessage('Completion note is required')
 ], myTasksController.completeSequentialTask);
-router.post('/:taskId/sequential/send-back', uploadTaskDocuments.array('files', 10), myTasksController.sendBackSequentialTask);
+router.post('/:taskId/sequential/send-back', uploadTaskDocuments.array('files', 10), requirePremiumIfFiles('allowTaskCompletionDocs'), myTasksController.sendBackSequentialTask);
 
 // Edit Activity
-router.put('/activity/:activityId', uploadTaskDocuments.array('files', 10), myTasksController.editActivity);
+router.put('/activity/:activityId', uploadTaskDocuments.array('files', 10), requirePremiumIfFiles('allowTaskCompletionDocs'), myTasksController.editActivity);
+
 
 module.exports = router;
 

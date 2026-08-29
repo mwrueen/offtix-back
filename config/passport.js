@@ -19,9 +19,10 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-// Google OAuth Strategy - only initialize if credentials are provided
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-google-client-id-here') {
+// Google OAuth Strategy - only initialize if valid credentials are provided
+if (process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.startsWith('your')) {
   passport.use(new GoogleStrategy({
+
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: process.env.NODE_ENV === 'production'
@@ -99,9 +100,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-googl
   }));
 }
 
-// GitHub OAuth Strategy - only initialize if credentials are provided
-if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your-github-client-id-here') {
+// GitHub OAuth Strategy - only initialize if valid credentials are provided
+if (process.env.GITHUB_CLIENT_ID && !process.env.GITHUB_CLIENT_ID.startsWith('your')) {
   passport.use(new GitHubStrategy({
+
     clientID: process.env.GITHUB_CLIENT_ID,
     clientSecret: process.env.GITHUB_CLIENT_SECRET,
     callbackURL: process.env.NODE_ENV === 'production'

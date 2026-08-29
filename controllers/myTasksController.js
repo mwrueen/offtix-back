@@ -1,3 +1,4 @@
+const path = require('path');
 const Task = require('../models/Task');
 const TaskUserDuration = require('../models/TaskUserDuration');
 const TaskActivity = require('../models/TaskActivity');
@@ -6,6 +7,21 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const TaskStatus = require('../models/TaskStatus');
 const { validationResult } = require('express-validator');
+
+// Convert absolute file path to a web-relative path (e.g. /uploads/task-documents/file.ext)
+const toWebPath = (filePath) => {
+  if (!filePath) return filePath;
+  // If already a relative web path, return as-is
+  if (filePath.startsWith('/uploads/') || filePath.startsWith('uploads/')) {
+    return filePath.startsWith('/') ? filePath : '/' + filePath;
+  }
+  // Extract from absolute path: find 'uploads/' and take everything from there
+  const uploadsIdx = filePath.replace(/\\/g, '/').indexOf('uploads/');
+  if (uploadsIdx !== -1) {
+    return '/' + filePath.replace(/\\/g, '/').substring(uploadsIdx);
+  }
+  return filePath;
+};
 
 // Get all tasks assigned to logged-in user
 exports.getMyTasks = async (req, res) => {
@@ -80,8 +96,6 @@ exports.getMyTasks = async (req, res) => {
     ]);
     const durationMap = {};
     taskDurations.forEach(d => { durationMap[d._id.toString()] = d.totalMinutes; });
-
-    console.log(`[getMyTasks] Found ${scopedTasks.length} tasks for user ${userId} (companyId=${companyId || 'personal'})`);
 
     // Check if user has any task in progress
     const hasTaskInProgress = scopedTasks.some(task => {
@@ -253,7 +267,6 @@ exports.getMyTasks = async (req, res) => {
       return null;
     }).filter(task => task !== null);
 
-    console.log(`[getMyTasks] Returning ${myTasks.length} formatted tasks`);
     res.json(myTasks);
   } catch (error) {
     console.error('Error fetching my tasks:', error);
@@ -955,7 +968,7 @@ exports.completeTask = async (req, res) => {
         documents = req.files.map(file => ({
           filename: file.filename,
           originalName: file.originalname,
-          path: file.path,
+          path: toWebPath(file.path || file.location),
           size: file.size,
           uploadedAt: new Date()
         }));
@@ -1003,7 +1016,7 @@ exports.completeTask = async (req, res) => {
       documents = req.files.map(file => ({
         filename: file.filename,
         originalName: file.originalname,
-        path: file.path,
+        path: toWebPath(file.path || file.location),
         size: file.size,
         uploadedAt: new Date()
       }));
@@ -1158,7 +1171,7 @@ exports.sendBackForFix = async (req, res) => {
       documents = req.files.map(file => ({
         filename: file.filename,
         originalName: file.originalname,
-        path: file.path,
+        path: toWebPath(file.path || file.location),
         size: file.size,
         uploadedAt: new Date()
       }));
@@ -1448,7 +1461,7 @@ exports.completeSequentialTask = async (req, res) => {
       documents = req.files.map(file => ({
         filename: file.filename,
         originalName: file.originalname,
-        path: file.path,
+        path: toWebPath(file.path || file.location),
         size: file.size,
         uploadedAt: new Date()
       }));
@@ -1593,7 +1606,7 @@ exports.sendBackSequentialTask = async (req, res) => {
       documents = req.files.map(file => ({
         filename: file.filename,
         originalName: file.originalname,
-        path: file.path,
+        path: toWebPath(file.path || file.location),
         size: file.size,
         uploadedAt: new Date()
       }));
@@ -1691,21 +1704,42 @@ exports.editActivity = async (req, res) => {
       activity.metadata.link = req.body.link;
     }
     
-    // Add any new files
+    // Handle document sync: keepDocIds tells us which existing docs to retain
+    let keepDocIds = [];
+    try {
+      keepDocIds = JSON.parse(req.body.keepDocIds || '[]');
+    } catch(e) { /* ignore parse errors */ }
+    
+    if (keepDocIds.length > 0) {
+      // Keep only documents whose _id or filename is in keepDocIds
+      activity.documents = (activity.documents || []).filter(doc => {
+        const docId = doc._id ? doc._id.toString() : doc.filename;
+        return keepDocIds.includes(docId) || keepDocIds.includes(doc.filename);
+      });
+    } else if (req.body.keepDocIds !== undefined) {
+      // keepDocIds was explicitly sent as empty → user removed all existing docs
+      activity.documents = [];
+    }
+    // If keepDocIds was never sent (undefined), preserve all existing documents
+    
+    // Add any new uploaded files
     if (req.files && req.files.length > 0) {
       const newDocs = req.files.map(file => ({
         filename: file.filename,
         originalName: file.originalname,
-        path: file.path,
+        path: toWebPath(file.path || file.location),
         size: file.size,
         mimetype: file.mimetype
       }));
       activity.documents = [...(activity.documents || []), ...newDocs];
     }
     
+    activity.markModified('documents');
+    activity.markModified('metadata');
     await activity.save();
     res.json({ message: 'Activity updated successfully', activity });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+

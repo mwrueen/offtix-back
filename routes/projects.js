@@ -42,8 +42,11 @@ router.delete('/:id/members/:userId', requirePermission('removeEmployeeFromProje
 // Analytics route
 router.get('/:id/analytics', projectController.getProjectAnalytics);
 
+const requirePremium = require('../middleware/requirePremium');
+
 // File attachment routes
-router.post('/:id/attachments', upload.single('file'), projectController.uploadAttachment);
+router.post('/:id/attachments', requirePremium('allowProjectFiles'), upload.single('file'), projectController.uploadAttachment);
+
 router.delete('/:id/attachments/:attachmentId', projectController.deleteAttachment);
 
 // Milestone management routes

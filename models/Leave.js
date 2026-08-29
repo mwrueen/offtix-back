@@ -76,8 +76,6 @@ leaveSchema.index({ company: 1, status: 1 });
 
 // Calculate total days before saving
 leaveSchema.pre('save', function(next) {
-  console.log('Pre-save hook running. isNew:', this.isNew, 'startDate:', this.startDate, 'endDate:', this.endDate, 'halfDay:', this.halfDay);
-
   if (this.isNew || this.isModified('startDate') || this.isModified('endDate') || this.isModified('halfDay')) {
     const start = new Date(this.startDate);
     const end = new Date(this.endDate);
@@ -85,10 +83,10 @@ leaveSchema.pre('save', function(next) {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
     this.totalDays = this.halfDay ? 0.5 : diffDays;
-    console.log('Calculated totalDays:', this.totalDays);
   }
   next();
 });
+
 
 module.exports = mongoose.model('Leave', leaveSchema);
 

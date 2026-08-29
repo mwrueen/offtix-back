@@ -110,8 +110,10 @@ app.use('/api/recruitment', require('./routes/recruitmentRoutes'));
 app.use('/api/skills', require('./routes/skills.js'));
 app.use('/api/currencies', currencyRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/subscription', require('./routes/subscription'));
 
 app.get('/api/health', (req, res) => {
+
   res.json({ status: 'Server running' });
 });
 
@@ -187,18 +189,32 @@ io.on('connection', async (socket) => {
     socket.leave(`project:${projectId}`);
   });
 
-  // Send a message
   socket.on('send-message', async (data) => {
     try {
-      const { projectId, companyId, recipientId, content, mentions = [], replyTo } = data;
+      const { projectId, companyId, recipientId, content, mentions = [], replyTo, type, attachment } = data;
+
+      // Check premium restriction for chat document / file sending
+      if (type === 'file' || attachment) {
+        const user = await User.findById(socket.userId).populate('company');
+        const isSuperAdmin = user && user.role === 'superadmin';
+        const isPremium = user && (user.subscription?.plan === 'premium' || user.company?.subscription?.plan === 'premium');
+        if (!isSuperAdmin && !isPremium) {
+          return socket.emit('error', {
+            error: 'PREMIUM_FEATURE_RESTRICTED',
+            message: 'Sending documents and files in chat requires a Premium subscription ($10/mo).'
+          });
+        }
+      }
 
       const messageData = {
         sender: socket.userId,
         content,
         mentions,
         replyTo,
-        type: 'text'
+        type: type || 'text',
+        attachment: attachment || undefined
       };
+
 
       let targetRoom = '';
       let notificationTargets = [];

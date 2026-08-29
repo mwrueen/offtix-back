@@ -972,9 +972,6 @@ exports.getBulkUserDurations = async (req, res) => {
       }
     });
 
-    if (Object.keys(result).length === 0) {
-        console.log(`No durations found for project ${projectId}, user ${userId}, role ${roleId}`);
-    }
     res.json(result);
   } catch (error) {
     console.error('SERVER ERROR IN getBulkUserDurations:', error.message, error.stack);
