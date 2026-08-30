@@ -40,7 +40,8 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'https://offtix.com',
   'https://www.offtix.com',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
 ];
 
 // Socket.io setup with CORS
@@ -59,9 +60,13 @@ require('./utils/socketRegistry').setIo(io);
 // Middleware
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow all origins in development for easier testing
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
     // allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error('Not allowed by CORS'));
