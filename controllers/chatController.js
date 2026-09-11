@@ -2,7 +2,9 @@ const asyncHandler = require('../utils/asyncHandler');
 const chatService = require('../services/chatService');
 
 exports.getMessages = asyncHandler(async (req, res) => {
-  const { projectId, companyId, dmWithId, page = 1, limit = 50, before } = req.query;
+  const projectId = req.params.projectId || req.query.projectId;
+  const companyId = req.params.companyId || req.query.companyId;
+  const { dmWithId, page = 1, limit = 50, before } = req.query;
   const result = await chatService.getMessages(
     { projectId, companyId, dmWithId, userId: req.user._id },
     { page: parseInt(page, 10), limit: parseInt(limit, 10), before }
