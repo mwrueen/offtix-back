@@ -70,3 +70,8 @@ exports.deleteCircular = asyncHandler(async (req, res) => {
   const result = await recruitmentService.deleteCircular(req.user, req.params.id);
   res.json(result);
 });
+
+exports.uploadCircularImage = asyncHandler(async (req, res) => {
+  const circular = await recruitmentService.uploadCircularImage(req.user, req.params.id, req.file);
+  res.json(circular);
+});

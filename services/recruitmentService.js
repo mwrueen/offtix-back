@@ -37,7 +37,7 @@ const createCircular = async (user, body) => {
   const company = await requireRecruitmentPermission(user.company, user._id);
   const {
     title, role, salaryRange, experience, description, jobNature, location,
-    benefits, mandatorySkills, niceToHaveSkills, questions, deadline
+    benefits, mandatorySkills, niceToHaveSkills, questions, deadline, coverImage
   } = body;
   const jobCircular = new JobCircular({
     company: user.company,
@@ -53,10 +53,25 @@ const createCircular = async (user, body) => {
     niceToHaveSkills,
     questions,
     deadline: deadline || undefined,
+    coverImage: coverImage || '',
     createdBy: user._id
   });
   await jobCircular.save();
   return jobCircular;
+};
+
+const uploadCircularImage = async (user, circularId, file) => {
+  await requireRecruitmentPermission(user.company, user._id);
+  const circular = await JobCircular.findOne({ _id: circularId, company: user.company });
+  if (!circular) {
+    throw ApiError.notFound('Circular not found');
+  }
+  if (!file) {
+    throw ApiError.badRequest('No image file provided');
+  }
+  circular.coverImage = file.path;
+  await circular.save();
+  return circular;
 };
 
 const getPublicCirculars = async () => {
@@ -456,6 +471,7 @@ const deleteCircular = async (user, circularId) => {
 
 module.exports = {
   createCircular,
+  uploadCircularImage,
   getPublicCirculars,
   getCompanyCirculars,
   getCircularDetails,
