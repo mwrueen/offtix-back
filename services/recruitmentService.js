@@ -71,6 +71,13 @@ const getPublicCirculars = async () => {
     .sort({ createdAt: -1 });
 };
 
+const getCompanyCirculars = async (user) => {
+  await requireRecruitmentPermission(user.company, user._id);
+  return JobCircular.find({ company: user.company })
+    .populate('company', 'name logo website')
+    .sort({ createdAt: -1 });
+};
+
 const getCircularDetails = async (id, user) => {
   const circular = await JobCircular.findById(id)
     .populate('company', 'name logo description website industries address email phone');
@@ -450,6 +457,7 @@ const deleteCircular = async (user, circularId) => {
 module.exports = {
   createCircular,
   getPublicCirculars,
+  getCompanyCirculars,
   getCircularDetails,
   applyForJob,
   getApplicants,

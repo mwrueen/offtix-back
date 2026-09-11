@@ -11,6 +11,11 @@ exports.getPublicCirculars = asyncHandler(async (req, res) => {
   res.json(circulars);
 });
 
+exports.getCompanyCirculars = asyncHandler(async (req, res) => {
+  const circulars = await recruitmentService.getCompanyCirculars(req.user);
+  res.json(circulars);
+});
+
 exports.getCircularDetails = asyncHandler(async (req, res) => {
   const circular = await recruitmentService.getCircularDetails(req.params.id, req.user);
   res.json(circular);

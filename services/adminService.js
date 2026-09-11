@@ -1,6 +1,7 @@
 const Company = require('../models/Company');
 const User = require('../models/User');
 const Project = require('../models/Project');
+const SubscriptionPlan = require('../models/SubscriptionPlan');
 const ApiError = require('../utils/ApiError');
 
 const requireSuperadmin = (user) => {
@@ -20,14 +21,69 @@ const getStats = async (user) => {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [totalCompanies, totalUsers, activeUsers, adminUsers] = await Promise.all([
+  const [totalCompanies, totalUsers, activeUsers, adminUsers, premiumCompanies, planConfig] = await Promise.all([
     Company.countDocuments(),
     User.countDocuments(),
     User.countDocuments({ lastLogin: { $gte: thirtyDaysAgo } }),
-    User.countDocuments({ role: { $in: ['admin', 'superadmin'] } })
+    User.countDocuments({ role: { $in: ['admin', 'superadmin'] } }),
+    Company.countDocuments({ 'subscription.plan': 'premium', 'subscription.status': 'active' }),
+    SubscriptionPlan.findOne()
   ]);
 
-  return { totalCompanies, totalUsers, activeUsers, adminUsers };
+  const monthlyPrice = planConfig?.monthlyPrice || 10;
+  const mrr = premiumCompanies * monthlyPrice;
+
+  const currencyUsage = await Company.aggregate([
+    { $group: { _id: { $ifNull: ["$currency", "USD"] }, count: { $sum: 1 } } },
+    { $sort: { count: -1 } }
+  ]);
+
+  const topCompaniesByEmployee = await Company.aggregate([
+    {
+      $project: {
+        name: 1,
+        logo: 1,
+        employeeCount: { $size: { $ifNull: ["$members", []] } }
+      }
+    },
+    { $sort: { employeeCount: -1 } },
+    { $limit: 5 }
+  ]);
+
+  const topCompaniesByUsage = await Project.aggregate([
+    { $group: { _id: "$company", projectCount: { $sum: 1 } } },
+    { $sort: { projectCount: -1 } },
+    { $limit: 5 },
+    {
+      $lookup: {
+        from: 'companies',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'companyData'
+      }
+    },
+    { $unwind: "$companyData" },
+    {
+      $project: {
+        _id: 1,
+        name: "$companyData.name",
+        logo: "$companyData.logo",
+        projectCount: 1
+      }
+    }
+  ]);
+
+  return { 
+    totalCompanies, 
+    totalUsers, 
+    activeUsers, 
+    adminUsers,
+    mrr,
+    mrrCurrency: planConfig?.currency || 'usd',
+    currencyUsage,
+    topCompaniesByEmployee,
+    topCompaniesByUsage
+  };
 };
 
 const getAllCompanies = async (user) => {
@@ -64,7 +120,7 @@ const getCompanyDetails = async (user, companyId) => {
   requireAdminOrSuperadmin(user);
   const company = await Company.findById(companyId)
     .populate('owner', 'name email avatar')
-    .populate('members.user', 'name email avatar role')
+    .populate('members.user', 'name email avatar role profile')
     .lean();
   if (!company) throw ApiError.notFound('Company not found');
   return { ...company, memberCount: company.members?.length || 0 };

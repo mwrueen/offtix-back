@@ -18,6 +18,7 @@ router.post('/public/apply/:id', authenticate, validateJobApplication, validate,
 
 // Admin Routes (Private)
 router.use(authenticate);
+router.get('/circulars', recruitmentController.getCompanyCirculars);
 router.post('/circulars', validateRecruitmentCircular, validate, recruitmentController.createCircular);
 router.put('/circulars/:id', validateRecruitmentCircularUpdate, validate, recruitmentController.updateCircular);
 router.delete('/circulars/:id', recruitmentController.deleteCircular);
