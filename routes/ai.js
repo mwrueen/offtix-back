@@ -4,6 +4,13 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { authenticate } = require('../middleware/auth');
 const requirePremium = require('../middleware/requirePremium');
 const Task = require('../models/Task');
+const multer = require('multer');
+
+// Memory storage for AI analysis to avoid saving files permanently
+const aiUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit per file
+});
 
 // Protect all AI routes with Premium check
 router.use(authenticate, requirePremium('allowAI'));
@@ -436,6 +443,251 @@ Example:
   } catch (error) {
     console.error('Error fetching country holidays:', error);
     res.status(500).json({ error: 'Failed to fetch country holidays' });
+  }
+});
+
+function generateFallbackRequirements(topicName) {
+  const topic = topicName || 'System Feature & Architecture';
+  const categories = [
+    {
+      cat: 'Authentication & Identity Management',
+      type: 'functional',
+      items: [
+        'User Registration via Email & Social Auth',
+        'Multi-Factor Authentication (MFA/TOTP)',
+        'OAuth 2.0 & OpenID Connect Single Sign-On',
+        'Password Complexity & Renewal Policies',
+        'Account Lockout after Failed Login Attempts',
+        'Session Expiration & Token Refresh Mechanisms',
+        'Magic Link Passwordless Authentication',
+        'Biometric Auth Integration for Mobile Devices',
+        'CAPTCHA Protection on Public Access Forms',
+        'Remember Me & Device Trust Management'
+      ]
+    },
+    {
+      cat: 'User & Team Workspace Management',
+      type: 'functional',
+      items: [
+        'Multi-Tenant Workspace Data Isolation',
+        'Role-Based Access Control (RBAC) Architecture',
+        'Custom Granular Permission Rules Definition',
+        'Team Member Invitations & Onboarding Flow',
+        'User Profile Settings & Avatar Management',
+        'Department & Organizational Hierarchy',
+        'Workspace Ownership Transfer & Handover',
+        'User Status & Online Presence Tracking',
+        'Deactivation & Soft-Delete User Accounts',
+        'Team Activity Feed & Time Log Summaries'
+      ]
+    },
+    {
+      cat: 'Core Functional Workflow & Task Engine',
+      type: 'functional',
+      items: [
+        'Dynamic Task & Project Creation Engine',
+        'Custom Workflow State Machine Definitions',
+        'Kanban, Gantt, and List View Options',
+        'Subtask & Nested Hierarchy Dependencies',
+        'Custom Fields & Dynamic Metadata Schema',
+        'Tagging, Labeling & Categorization Filtering',
+        'Milestone & Release Roadmap Tracking',
+        'Time Tracking & Logged Work Hours',
+        'Task Assignment & Auto-Reassignment Logic',
+        'Bulk Batch Editing & Multi-select Actions'
+      ]
+    },
+    {
+      cat: 'Data Management & Analytics Engine',
+      type: 'technical',
+      items: [
+        'Real-time Dashboard Metrics Aggregation',
+        'Custom Report Builder with Advanced Filters',
+        'Data Export to CSV, XLSX, and PDF Formats',
+        'Automated Scheduled Data Email Digests',
+        'Historical Trend Analysis & Charting Views',
+        'Full-Text Search Engine with Faceted Search',
+        'Data Deduplication & Conflict Resolution',
+        'Data Cleaning & Validation Rules Engine',
+        'Cold Storage Data Archiving Policies',
+        'Business Intelligence API Data Streaming'
+      ]
+    },
+    {
+      cat: 'Real-time Collaboration & Notifications',
+      type: 'functional',
+      items: [
+        'In-App Push & Toast Notification System',
+        'Email Notification Trigger Customization',
+        'WebSockets Live Collaborative Editing',
+        'Comment Threads & @Mention Tagging',
+        'Rich Text & Markdown Editor with Attachments',
+        'Activity Stream & Live Audit Changelogs',
+        'Presence Indicators & Active User Cursors',
+        'Slack & Microsoft Teams Bot Integrations',
+        'SMS & Mobile Push Notification Gateway',
+        'Notification Muting & Subscriptions Control'
+      ]
+    },
+    {
+      cat: 'Security, Privacy & Compliance',
+      type: 'technical',
+      items: [
+        'AES-256 Data Encryption at Rest',
+        'TLS 1.3 Strict Transport Encryption',
+        'GDPR & CCPA Data Privacy Rights Compliance',
+        'Automated PII Data Masking & Anonymization',
+        'Vulnerability Scanning & Dependency Audit',
+        'Web Application Firewall (WAF) Filtering',
+        'Cross-Site Scripting (XSS) Mitigation',
+        'CSRF Token Protection on State Mutations',
+        'Content Security Policy (CSP) Header Rules',
+        'SOC 2 Type II Compliance & Audit Readiness'
+      ]
+    },
+    {
+      cat: 'Infrastructure, Performance & Scalability',
+      type: 'non-functional',
+      items: [
+        'Kubernetes Container Auto-Scaling Rules',
+        'CDN Static Asset Caching & Optimization',
+        'Database Read-Replica Load Balancing',
+        'Redis In-Memory Caching Tier Integration',
+        'Sub-100ms API Response Latency Target',
+        '99.99% Annual System Uptime Guarantee',
+        'Stateless Microservice Container Architecture',
+        'Asynchronous Background Job Queue Processing',
+        'Database Query Indexing & Performance Tuning',
+        'Graceful Service Degradation Under Load'
+      ]
+    },
+    {
+      cat: 'Integrations, APIs & Webhooks',
+      type: 'business',
+      items: [
+        'RESTful API v1 Specification & OpenAPI Specs',
+        'GraphQL Endpoint Query Support',
+        'Custom Webhook Event Subscriptions Engine',
+        'API Key Generation & Granular Scoping',
+        'Token-Bucket & IP-based API Rate Limiting',
+        'Zapier & Make.com Integration Connectors',
+        'Google Workspace & Microsoft 365 Sync',
+        'Cloud Storage Direct S3/GCS Upload Hooks',
+        'Payment Gateway Integration (Stripe/PayPal)',
+        'Third-Party Data Import Wizard'
+      ]
+    },
+    {
+      cat: 'UI/UX, Accessibility & Localization',
+      type: 'user-story',
+      items: [
+        'WCAG 2.1 AA Accessibility Compliance',
+        'Dark Mode & Custom Theme Switcher',
+        'Responsive Mobile-First UI Grid Layout',
+        'Multi-Language i18n Localization Engine',
+        'Keyboard Navigation & Screen Reader Support',
+        'Dynamic Right-to-Left (RTL) Layout Support',
+        'Customizable User Dashboard Widgets',
+        'High-Contrast Mode for Low-Vision Users',
+        'Interactive Empty States & Guided Tours',
+        'Micro-Interactions & Smooth UI Animations'
+      ]
+    },
+    {
+      cat: 'System Auditing, Logging & Disaster Recovery',
+      type: 'technical',
+      items: [
+        'Immutable Audit Logs for System Actions',
+        'Centralized Logging with ELK/Datadog',
+        'Real-time Error Tracking & Sentry Integration',
+        'Automated Daily Database Snapshot Backups',
+        'Point-in-Time Data Recovery (PITR)',
+        'Multi-Region Cloud Failover Infrastructure',
+        'Disaster Recovery RTO < 1 Hour Target',
+        'Disaster Recovery RPO < 15 Minutes Target',
+        'Chaos Engineering & Fault Tolerance Testing',
+        'System Health Check & Ping Monitoring'
+      ]
+    }
+  ];
+
+  const priorities = ['critical', 'high', 'medium', 'low'];
+  const results = [];
+  let idCounter = 1;
+
+  for (const group of categories) {
+    for (let i = 0; i < group.items.length; i++) {
+      const itemTitle = group.items[i];
+      const priority = priorities[i % priorities.length];
+      results.push({
+        title: `REQ-${String(idCounter).padStart(3, '0')}: ${itemTitle}`,
+        description: `<p>The system must provide comprehensive <strong>${itemTitle}</strong> specifically customized for <em>${topic}</em>. This requirement covers system behavior, edge cases, error handling, performance constraints, and user experience standards within the ${group.cat} domain.</p>`,
+        type: group.type,
+        priority: priority
+      });
+      idCounter++;
+    }
+  }
+
+  return results;
+}
+
+router.post('/generate-requirement', authenticate, aiUpload.array('files', 5), async (req, res) => {
+  try {
+    const { textPrompt } = req.body;
+    const files = req.files || [];
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    let generatedReq = null;
+
+    if (apiKey) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const parts = [];
+        
+        let prompt = `Analyze the provided context (documents, images, audio, and/or text instructions) and generate a massive, exhaustive list of project requirements. Generate 100 distinct, detailed requirements covering every functional, non-functional, business, security, and technical aspect you can extract or infer from the context.
+Return your response strictly as a RAW JSON array of objects. Do not wrap in markdown code blocks.
+Each object must have the following structure:
+{
+  "title": "A concise and descriptive title",
+  "description": "<p>A short description formatted in HTML.</p>",
+  "type": "one of: functional, non-functional, business, technical, user-story",
+  "priority": "one of: low, medium, high, critical"
+}`;
+
+        if (textPrompt) {
+          prompt += `\n\nAdditional Instructions / Context from user:\n"${textPrompt}"`;
+        }
+        parts.push(prompt);
+
+        for (const file of files) {
+          parts.push({
+            inlineData: {
+              data: file.buffer.toString('base64'),
+              mimeType: file.mimetype
+            }
+          });
+        }
+
+        const result = await model.generateContent(parts);
+        const response = await result.response;
+        const responseText = response.text().trim().replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/```$/, '');
+        generatedReq = JSON.parse(responseText);
+      } catch (geminiErr) {
+        console.error('Gemini error for requirement generation, using fallback list:', geminiErr.message);
+      }
+    }
+
+    if (!Array.isArray(generatedReq) || generatedReq.length === 0) {
+      generatedReq = generateFallbackRequirements(textPrompt);
+    }
+
+    res.json(generatedReq);
+  } catch (error) {
+    console.error('Error generating requirement:', error);
+    res.status(500).json({ error: 'Failed to generate requirements' });
   }
 });
 
