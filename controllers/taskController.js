@@ -214,6 +214,7 @@ exports.createTask = async (req, res) => {
     await task.populate('parent', 'title');
     await task.populate('sprint', 'name sprintNumber');
     await task.populate('phase', 'name');
+    await task.populate('requirement', 'title');
 
     res.status(201).json(task);
   } catch (error) {
@@ -286,6 +287,7 @@ exports.updateTask = async (req, res) => {
     await task.populate('parent', 'title');
     await task.populate('sprint', 'name sprintNumber');
     await task.populate('phase', 'name');
+    await task.populate('requirement', 'title');
 
     res.json(task);
   } catch (error) {
